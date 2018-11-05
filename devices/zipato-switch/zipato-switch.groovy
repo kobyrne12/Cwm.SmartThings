@@ -9,7 +9,7 @@
  * It can be used to interact with devices such as LightwaveRF, which are not compatible with a SmartThings hub.
  */
 metadata {
-	definition (name: "Zipato switch", namespace: "smartthings-users", author: "Neil Cumpstey") {
+	definition (name: "Zipato switch", namespace: "cwm", author: "Neil Cumpstey") {
 		capability "Switch"
 	}
 
