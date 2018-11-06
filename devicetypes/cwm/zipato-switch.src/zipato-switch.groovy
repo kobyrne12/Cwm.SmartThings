@@ -16,6 +16,7 @@ metadata {
 
   preferences {
     input("remotingUrl", "text", title: "Remoting url", description: "Url provided by Zipato to control the virtual device. The value will be tacked on the end.")
+    input("logging", "bool", title: "Debug logging", description: "Enable logging of debugging messages.")
   }
 
   tiles(scale: 2) {
@@ -44,13 +45,13 @@ def parse(String description) {
 }
 
 def on() {
-	log.debug "Executing 'on'"
+	logging "Executing 'on'"
   sendEvent(name: "switch", value: 'turningOn', isStateChange: true)
   request(1, 'on')
 }
 
 def off() {
-  log.debug "Executing 'off'"
+  logging "Executing 'off'"
   sendEvent(name: "switch", value: 'turningOff', isStateChange: true)
   request(0, 'off')
 }
@@ -61,7 +62,13 @@ private def request(value, nextState) {
   ]
 
   httpGet(params) {response ->
-    log.debug "Response data from '" + nextState + "' command: " + response.data
+    logging "Response data from '" + nextState + "' command: " + response.data
     sendEvent(name: "switch", value: nextState, isStateChange: true)
   }    
+}
+
+private def logging(message) {
+  if (settings.logging){
+    log.debug "$message"
+  }
 }
