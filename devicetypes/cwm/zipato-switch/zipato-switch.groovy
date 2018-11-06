@@ -10,6 +10,7 @@
  */
 metadata {
 	definition (name: "Zipato switch", namespace: "cwm", author: "Neil Cumpstey") {
+    capability "Actuator"
 		capability "Switch"
 	}
 
@@ -37,7 +38,6 @@ metadata {
     main(["switch"])
     details(["switch", "explicitOn", "explicitOff"])
   }
-
 }
 
 def parse(String description) {
@@ -55,13 +55,13 @@ def off() {
   request(0, 'off')
 }
 
-def request(value, nextState) {
-    def params = [
-      uri: settings.remotingUrl + value,
-    ]
+private def request(value, nextState) {
+  def params = [
+    uri: settings.remotingUrl + value,
+  ]
 
-    httpGet(params) {response ->
-     	log.debug "Response data from '" + nextState + "' command: " + response.data
-      sendEvent(name: "switch", value: nextState, isStateChange: true)
-    }    
+  httpGet(params) {response ->
+    log.debug "Response data from '" + nextState + "' command: " + response.data
+    sendEvent(name: "switch", value: nextState, isStateChange: true)
+  }    
 }
