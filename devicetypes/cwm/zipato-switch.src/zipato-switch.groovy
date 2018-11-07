@@ -1,15 +1,23 @@
 /**
- * Zipato switch device handler
- * Version: 0.1
- * Date: 5 Nov 2018
- * Author: Neil Cumpstey
- * Copyright: Neil Cumpstey
+ *  Zipato Switch
  * 
- * A SmartThings device handler which wraps a virtual device on a Zipato box.
- * It can be used to interact with devices such as LightwaveRF, which are not compatible with a SmartThings hub.
+ *  Copyright 2018 Neil Cumpstey
+ * 
+ *  A SmartThings device handler which wraps a virtual device on a Zipato box.
+ *  It can be used to interact with devices such as LightwaveRF, which are not compatible with a SmartThings hub.
+ *
+ *  Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except
+ *  in compliance with the License. You may obtain a copy of the License at:
+ *
+ *      http://www.apache.org/licenses/LICENSE-2.0
+ *
+ *  Unless required by applicable law or agreed to in writing, software distributed under the License is distributed
+ *  on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the License
+ *  for the specific language governing permissions and limitations under the License.
+ *
  */
 metadata {
-	definition (name: "Zipato switch", namespace: "cwm", author: "Neil Cumpstey", vid: "generic-switch") {
+	definition (name: "Zipato Switch", namespace: "cwm", author: "Neil Cumpstey", vid: "generic-switch") {
     capability "Actuator"
 		capability "Switch"
     capability "Health Check"
@@ -43,16 +51,17 @@ metadata {
 }
 
 def parse(String description) {
+  log "Parsing: " + description
 }
 
 def on() {
-	logging "Executing 'on'"
+	log "Executing 'on'"
   sendEvent(name: "switch", value: 'turningOn', isStateChange: true)
   request(1, 'on')
 }
 
 def off() {
-  logging "Executing 'off'"
+  log "Executing 'off'"
   sendEvent(name: "switch", value: 'turningOff', isStateChange: true)
   request(0, 'off')
 }
@@ -62,13 +71,13 @@ private def request(value, nextState) {
     uri: settings.remotingUrl + value,
   ]
 
-  httpGet(params) {response ->
-    logging "Response data from '" + nextState + "' command: " + response.data
+  httpGet(params) { response ->
+    log "Response data from '" + nextState + "' command: " + response.data
     sendEvent(name: "switch", value: nextState, isStateChange: true)
   }    
 }
 
-private def logging(message) {
+private def log(message) {
   if (settings.logging){
     log.debug "$message"
   }
