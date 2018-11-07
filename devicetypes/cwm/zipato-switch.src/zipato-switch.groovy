@@ -17,11 +17,11 @@
  *
  */
 metadata {
-	definition (name: "Zipato Switch", namespace: "cwm", author: "Neil Cumpstey", vid: "generic-switch") {
+  definition (name: "Zipato Switch", namespace: "cwm", author: "Neil Cumpstey", vid: "generic-switch") {
     capability "Actuator"
-		capability "Switch"
+    capability "Switch"
     capability "Health Check"
-	}
+  }
 
   preferences {
     input("remotingUrl", "text", title: "Remoting url", description: "Url provided by Zipato to control the virtual device. The value will be tacked on the end.")
@@ -51,17 +51,17 @@ metadata {
 }
 
 def parse(String description) {
-  log "Parsing: " + description
+  logging "Parsing '${description}'"
 }
 
 def on() {
-	log "Executing 'on'"
+  logging "Executing 'on'"
   sendEvent(name: "switch", value: 'turningOn', isStateChange: true)
   request(1, 'on')
 }
 
 def off() {
-  log "Executing 'off'"
+  logging "Executing 'off'"
   sendEvent(name: "switch", value: 'turningOff', isStateChange: true)
   request(0, 'off')
 }
@@ -72,12 +72,12 @@ private def request(value, nextState) {
   ]
 
   httpGet(params) { response ->
-    log "Response data from '" + nextState + "' command: " + response.data
+    logging "Response data from '${nextState}' command: ${response.data}"
     sendEvent(name: "switch", value: nextState, isStateChange: true)
   }    
 }
 
-private def log(message) {
+private def logging(message) {
   if (settings.logging){
     log.debug "$message"
   }
