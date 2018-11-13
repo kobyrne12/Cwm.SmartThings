@@ -24,7 +24,10 @@ metadata {
   }
 
   preferences {
-    input("remotingUrl", "text", title: "Remoting url", description: "Url provided by Zipato to control the virtual device. The value will be tacked on the end.")
+    input("serial", "text", title: "Zipabox serial", description: "Serial number of the Zipabox.")
+    input("apiKey", "text", title: "Api key", description: "Zipato api key.")
+    input("endpoint", "text", title: "Endpoint id", description: "Id of the virtual device endpoint (guid).")
+    input("attribute", "text", title: "Attribute name", description: "Name of the attribute (eg. value2).")
     input("logging", "bool", title: "Debug logging", description: "Enable logging of debugging messages.")
   }
 
@@ -63,18 +66,20 @@ def on() {
 def off() {
   logging "Executing 'off'"
   sendEvent(name: "switch", value: 'turningOff', isStateChange: true)
-  request(0, 'off')
+  request(-1, 'off')
 }
 
 private def request(value, nextState) {
+  def url = "https://my.zipato.com/zipato-web/remoting/attribute/set?serial=${settings.serial}&apiKey=${settings.apiKey}&ep=${settings.endpoint}&${settings.attribute}=${value}"
+
   def params = [
-    uri: settings.remotingUrl + value,
+    uri: url,
   ]
 
   httpGet(params) { response ->
     logging "Response data from '${nextState}' command: ${response.data}"
     sendEvent(name: "switch", value: nextState, isStateChange: true)
-  }    
+  }
 }
 
 private def logging(message) {
