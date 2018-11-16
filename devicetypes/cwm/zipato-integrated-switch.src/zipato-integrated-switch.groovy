@@ -37,22 +37,22 @@ metadata {
         attributeState 'turningOn', label: 'Turning on', action: 'switch.off', icon: 'st.Home.home30', backgroundColor: '#00A0DC', nextState: 'turningOn'
         attributeState 'turningOff', label: 'Turning off', action: 'switch.on', icon: 'st.Home.home30', backgroundColor: '#FFFFFF', nextState: 'turningOff'
       }
-      tileAttribute ('device', key: 'SECONDARY_CONTROL') {
-        attributeState '', label: '', icon: 'https://raw.githubusercontent.com/cumpstey/Cwm.SmartThings/master/smartapps/cwm/zipato-integration.src/assets/zipato-60.png'
-      }
     }
-    standardTile('explicitOn', 'device.switch', width: 2, height: 2, decoration: 'flat') {
+    standardTile('brand', 'device', width: 1, height: 1, decoration: 'flat') {
+      state 'default', label: '', icon: 'https://raw.githubusercontent.com/cumpstey/Cwm.SmartThings/master/smartapps/cwm/zipato-integration.src/assets/zipato-60.png'
+    }
+    standardTile('refresh', 'device', width: 1, height: 1, decoration: 'flat') {
+      state 'default', label: '', action: 'refresh', icon: 'st.secondary.refresh'
+    }
+    standardTile('explicitOn', 'device.switch', width: 2, height: 1, decoration: 'flat') {
       state 'default', label: 'On', action: 'switch.on', icon: 'st.Home.home30', backgroundColor: '#ffffff'
     }
-    standardTile('explicitOff', 'device.switch', width: 2, height: 2, decoration: 'flat') {
+    standardTile('explicitOff', 'device.switch', width: 2, height: 1, decoration: 'flat') {
       state 'default', label: 'Off', action: 'switch.off', icon: 'st.Home.home30', backgroundColor: '#ffffff'
-    }
-    standardTile('refresh', 'device', width: 2, height: 1, decoration: 'flat') {
-      state 'default', label: 'Refresh', action: 'refresh'
     }
 
     main(['switch'])
-    details(['switch', 'explicitOn', 'explicitOff', 'refresh'])
+    details(['switch', 'brand', 'refresh', 'explicitOn', 'explicitOff'])
   }
 }
 

@@ -450,7 +450,6 @@ void refresh() {
 }
 
 void logger(msg, level = 'debug') {
-  state.logLevel = 5
   switch (level) {
     case 'error':
       if (state.logLevel >= 1) log.error msg
