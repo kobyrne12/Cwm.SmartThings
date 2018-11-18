@@ -19,7 +19,7 @@ definition(
   namespace: 'cwm',
   author: 'Neil Cumpstey',
   description: 'Get a notification when motion is detected in a room when the lights are off and the doors are shut.',
-  category: null,
+  category: 'Pets',
   iconUrl: 'https://raw.githubusercontent.com/cumpstey/Cwm.SmartThings/master/smartapps/cwm/trapped-pet-notification.src/assets/pawprint-60.png',
   iconX2Url: 'https://raw.githubusercontent.com/cumpstey/Cwm.SmartThings/master/smartapps/cwm/trapped-pet-notification.src/assets/pawprint-120.png',
   iconX3Url: 'https://raw.githubusercontent.com/cumpstey/Cwm.SmartThings/master/smartapps/cwm/trapped-pet-notification.src/assets/pawprint-180.png'
