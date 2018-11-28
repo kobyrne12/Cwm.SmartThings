@@ -17,14 +17,14 @@
  */
 metadata {
   definition (name: 'Genius Hub Room', namespace: 'cwm', author: 'Neil Cumpstey') {
-		capability 'Actuator'
-		capability 'Illuminance Measurement'
-		capability 'Temperature Measurement'
-		capability 'Thermostat'
-		capability 'Refresh'
-		capability 'Sensor'
-		capability 'Battery'
-		capability 'Health Check'
+    capability 'Actuator'
+    capability 'Illuminance Measurement'
+    capability 'Temperature Measurement'
+    capability 'Thermostat'
+    capability 'Refresh'
+    capability 'Sensor'
+    capability 'Battery'
+    capability 'Health Check'
 
     command 'refresh'
     command 'setTemperature'
@@ -40,42 +40,36 @@ metadata {
   }
 
   tiles(scale: 2) {
-    multiAttributeTile(name:"thermostat", type:"generic", width:6, height:4) {
-      tileAttribute("device.temperature", key: "PRIMARY_CONTROL") {
-        attributeState("temperature", label:'${currentValue}°C', icon: "st.alarm.temperature.normal", defaultState: true,
-					backgroundColors:[
-            [value: 0, color: "#153591"],
-            [value: 7, color: "#1e9cbb"],
-            [value: 15, color: "#90d2a7"],
-            [value: 23, color: "#44b621"],
-            [value: 28, color: "#f1d801"],
-            [value: 35, color: "#d04e00"],
-            [value: 37, color: "#bc2323"],
-            
-            [value: 60, color: "#153591"],
-            [value: 67, color: "#1e9cbb"],
-            [value: 72, color: "#90d2a7"],
-            [value: 77, color: "#44b621"],
-            [value: 83, color: "#f1d801"],
-            [value: 88, color: "#d04e00"],
-            [value: 93, color: "#bc2323"]
-					]
+    multiAttributeTile(name: 'thermostat', type: 'generic', width: 6, height: 4) {
+      tileAttribute('device.temperature', key: 'PRIMARY_CONTROL') {
+        attributeState('temperature', label: '${currentValue}°', icon: 'st.alarm.temperature.normal', defaultState: true,
+          backgroundColors:[
+            [ value: 30, color: '#3366ff' ],
+            [ value: 50, color: '#00ccff' ],
+            [ value: 60, color: '#00ffcc' ],
+            [ value: 65, color: '#00cc00' ],
+            [ value: 70, color: '#66ff33' ],
+            [ value: 75, color: '#f1d801' ],
+            [ value: 80, color: '#d04e00' ],
+            [ value: 85, color: '#bc2323' ]
+          ]
         )
       }
       // Range doesn't seem to work :-(
-			tileAttribute ('device.targetTemperature', key: 'SLIDER_CONTROL', range: '(4..28)') {
-				attributeState 'level', action: 'setTemperature'
-			}
+      // But we wouldn't be able to control this depending on the temperature scale anyway, and this way anyone who likes Fahrenheit can still use it.
+      tileAttribute ('device.targetTemperature', key: 'SLIDER_CONTROL', range: '(4..28)') {
+        attributeState 'level', label: '${currentValue}°', action: 'setTemperature'
+      }
     }
     standardTile('brand', 'device', width: 1, height: 1, decoration: 'flat') {
       state 'default', label: '', icon: 'https://raw.githubusercontent.com/cumpstey/Cwm.SmartThings/master/smartapps/cwm/genius-hub-integration.src/assets/genius-hub-60.png'
     }
     // TODO: better icons here
     valueTile('operatingMode', "device.operatingMode", width: 1, height: 1, decoration: 'flat') {
-      state('off', label: '', icon: "st.Weather.weather7", defaultState: true)
-      state('override', icon: "st.Home.home1")
-      state('timer', icon: "st.Health & Wellness.health7")
-      state('footprint', icon: "st.People.people6")
+      state('off', label: '', icon: 'https://raw.githubusercontent.com/cumpstey/Cwm.SmartThings/master/smartapps/cwm/genius-hub-integration.src/assets/genius-hub-off-120.png', defaultState: true)
+      state('override', icon: 'https://raw.githubusercontent.com/cumpstey/Cwm.SmartThings/master/smartapps/cwm/genius-hub-integration.src/assets/genius-hub-override-120.png')
+      state('timer', icon: 'https://raw.githubusercontent.com/cumpstey/Cwm.SmartThings/master/smartapps/cwm/genius-hub-integration.src/assets/genius-hub-timer-120.png')
+      state('footprint', icon: 'https://raw.githubusercontent.com/cumpstey/Cwm.SmartThings/master/smartapps/cwm/genius-hub-integration.src/assets/genius-hub-footprint-120.png')
     }
     standardTile('refresh', 'device', width: 1, height: 1, decoration: 'flat') {
       state 'default', label: '', action: 'refresh', icon: 'st.secondary.refresh'
@@ -88,8 +82,8 @@ metadata {
         [value: 51, color: '#44b621']
       ]
     }
-		valueTile('illuminance', 'device.illuminance', inactiveLabel: false, width: 1, height: 1) {
-			state 'illuminance', label: '${currentValue} lux', unit: 'lux'
+    valueTile('illuminance', 'device.illuminance', inactiveLabel: false, width: 1, height: 1) {
+      state 'illuminance', label: '${currentValue} lux', unit: 'lux'
     }
 
     main(['thermostat'])
@@ -123,7 +117,8 @@ void updateState(Map values) {
   }
 
   if (values?.containsKey('sensorTemperature')) {
-    sendEvent(name: 'temperature', value: values.sensorTemperature, unit: '°C')
+    def value = convertCelsius(values.sensorTemperature)
+    sendEvent(name: 'temperature', value: value, unit: "°${temperatureScale}")
   }
 
   if (values?.containsKey('minBattery')) {
@@ -142,12 +137,11 @@ void updateState(Map values) {
 def setTemperature(value) {
   logger "${device.label}: setTemperature: ${value}", 'trace'
 
-  sendEvent(name: 'targetTemperature', value: value, unit: '°C')  
+  sendEvent(name: 'targetTemperature', value: value, unit: "°${temperatureScale}")  
 
-  parent.pushRoomTemperature(state.geniusId, value)
+  def valueInCelsius = temperatureScale == 'F' ? convertFahrenheit(value) : convertCelsius(value)
+  parent.pushRoomTemperature(state.geniusId, valueInCelsius)
 }
-
-//#endregion Actions
 
 def parse(String description) {
 }
@@ -158,7 +152,21 @@ def refresh() {
   parent.refresh()
 }
 
-void logger(msg, level = 'debug') {
+//#endregion Actions
+
+//#region Helpers
+
+private convertCelsius(Float valueInCelsius) {
+  def value = (temperatureScale == "F") ? ((valueInCelsius * 1.8) + 32) : valueInCelsius
+  return value.round(1)
+}
+
+private convertFahrenheit(Float valueInFahrenheit) {
+  def value = (temperatureScale == "C") ? ((valueInFahrenheit - 32) / 1.8) : valueInFahrenheit
+  return value.round(1)
+}
+
+private logger(msg, level = 'debug') {
   switch (level) {
     case 'error':
       if (state.logLevel >= 1) log.error msg
@@ -180,3 +188,5 @@ void logger(msg, level = 'debug') {
       break
   }
 }
+
+//#endregion Helpers
