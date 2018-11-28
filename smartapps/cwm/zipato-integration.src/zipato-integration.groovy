@@ -72,7 +72,7 @@ Resolve the error if possible and try again."""
       href name: 'toAuthenticationPage', page: 'authenticationPage', title: "Authenticated as ${settings.zipatoUsername}", description: 'Tap to change' , state: state.authenticated ? 'complete' : null
     }
     section ('Devices') {
-      href name: 'tomanageDevicesPage', page: 'manageDevicesPage', title: 'Add devices'
+      href name: 'tomanageDevicesPage', page: 'manageDevicesPage', title: 'Manage devices'
     }
     section('General') {
       input 'logging', 'bool', title: 'Debug logging', description: 'Enable logging of debug messages.'

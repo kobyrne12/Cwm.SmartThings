@@ -67,7 +67,7 @@ Resolve the error if possible and try again."""
       href name: 'toAuthenticationPage', page: 'authenticationPage', title: "Authenticated as ${settings.geniusHubUsername}", description: 'Tap to change' , state: state.authenticated ? 'complete' : null
     }
     section ('Devices') {
-      href name: 'tomanageDevicesPage', page: 'manageDevicesPage', title: 'Add devices'
+      href name: 'tomanageDevicesPage', page: 'manageDevicesPage', title: 'Manage devices'
     }
     section('General') {
       input 'logging', 'bool', title: 'Debug logging', description: 'Enable logging of debug messages.'
@@ -244,13 +244,13 @@ private updateChildDevices() {
     def delete = false;
     switch (geniusType) {
       case 'house':
-        if (!settings.selectedHouses.contains(geniusId)) { delete = true }
+        if (!settings.selectedHouses || !settings.selectedHouses.contains(geniusId)) { delete = true }
         break
       case 'room':
-        if (!settings.selectedRooms.contains(geniusId)) { delete = true }
+        if (!settings.selectedRooms || !settings.selectedRooms.contains(geniusId)) { delete = true }
         break
       case 'switch':
-        if (!settings.selectedSwitches.contains(geniusId)) { delete = true }
+        if (!settings.selectedSwitches || !settings.selectedSwitches.contains(geniusId)) { delete = true }
         break
       default:
         logger "Unexpected Genius Hub device type for device ${geniusId}: ${geniusType}"
