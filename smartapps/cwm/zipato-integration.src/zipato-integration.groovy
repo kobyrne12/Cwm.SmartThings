@@ -21,6 +21,7 @@
  *  on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the License
  *  for the specific language governing permissions and limitations under the License.
  */
+include 'asynchttp_v1'
 
 definition(
   name: 'Zipato Integration',
@@ -43,7 +44,7 @@ preferences {
   page(name: 'mainPage')
   page(name: 'authenticationPage')
   page(name: 'authenticatedPage')
-  page(name: 'newDevicePage')
+  page(name: 'manageDevicesPage')
 }
 
 def mainPage() {
@@ -58,7 +59,7 @@ def mainPage() {
     error = """\
 Error communicating with Zipato api:
 ${state.currentError}
-Please resolve the error and try again.""" 
+Resolve the error if possible and try again.""" 
   }
   
   return dynamicPage(name: 'mainPage', title: null, install: true, uninstall: true) {
@@ -68,23 +69,14 @@ Please resolve the error and try again."""
       }
     }
     section ('Zipato settings') {
-      href name: 'toAuthenticationPage', page: 'authenticationPage', title: "Authenticated as ${zipatoUsername}", description: 'Tap to change' , state: state.authenticated ? 'complete' : null
+      href name: 'toAuthenticationPage', page: 'authenticationPage', title: "Authenticated as ${settings.zipatoUsername}", description: 'Tap to change' , state: state.authenticated ? 'complete' : null
     }
     section ('Devices') {
-      href name: 'toNewDevicePage', page: 'newDevicePage', title: 'Add devices'
+      href name: 'tomanageDevicesPage', page: 'manageDevicesPage', title: 'Add devices'
     }
     section('General') {
-      input (name: 'logLevel', title: 'Log level', type: 'enum',
-        options: [
-          '0': 'None',
-          '1': 'Error',
-          '2': 'Warning',
-          '3': 'Info',
-          '4': 'Debug',
-          '5': 'Trace'
-        ],
-      )
-      label title: "Assign a name", required: false
+      input 'logging', 'bool', title: 'Debug logging', description: 'Enable logging of debug messages.'
+      label title: 'Assign a name', required: false
     }
   }
 }
@@ -123,9 +115,9 @@ def authenticatedPage() {
   }
 }
 
-def newDevicePage() {
+def manageDevicesPage() {
   // Get available devices from api
-  attributes_get_valid()
+  fetchDevices()
 
   // If there's an error connecting to the api, return to main page to show it
   if (state.currentError != null) {
@@ -133,33 +125,33 @@ def newDevicePage() {
   }
 
   // Check if device selection has changed, and update child devices if it has
-  def selectedDevicesKey = settings.selectedDevices ? settings.selectedDevices.sort(false).join(',') : null
+  def selectedDevicesKey = settings.selectedSwitches ? settings.selectedSwitches.sort(false).join(',') : null
   if (state.selectedDevicesKey != selectedDevicesKey) {
     updateChildDevices()
     state.selectedDevicesKey = selectedDevicesKey
   }
 
   // Generate options from list of available devices
-  def options = [:]
-  state.devices.each {
-    options[it.key] = "${it.value?.device?.name} > ${it.value?.endpoint?.name} > ${it.value?.name}"
+  def switchOptions = [:]
+  state.switches.each {
+    switchOptions[it.key] = "${it.value?.device?.name} > ${it.value?.endpoint?.name} > ${it.value?.name}"
   }
 
   // Set empty list warning message
-  def message = null
-  if (options == [:]) {
-    message = 'No devices available.'
+  def switchesMessage = null
+  if (switchOptions == [:]) {
+    switchesMessage = 'No switches available.'
   }
 
-  return dynamicPage (name: "newDevicePage", title: "Select devices", install: false, uninstall: false) {
-    if (message) {
+  return dynamicPage (name: "manageDevicesPage", title: "Select devices", install: false, uninstall: false) {
+    if (switchesMessage) {
       section {
-        paragraph "${message}"
+        paragraph "${switchesMessage}"
       }
     }
     section {
-      input name: 'selectedDevices', type: "enum", required: false, multiple: true,
-            title: "Select devices (${options.size() ?: 0} found)", options: options, submitOnChange: true
+      input name: 'selectedSwitches', type: "enum", required: false, multiple: true,
+            title: "Select switches (${switchOptions.size() ?: 0} found)", options: switchOptions, submitOnChange: true
     }
   }
 }
@@ -172,10 +164,28 @@ def installed() {
   state.installed = true
 
   // Refresh data every 5 minutes
-  runEvery5Minutes(refresh)
+  runEvery5Minutes('refresh')
 
   // Reauthenticate every 3 hours
-  runEvery3Hours(authenticate)
+  runEvery3Hours('authenticate')
+}
+
+def updated() {
+  logger "${app.label}: updated", 'trace'
+
+  state.logLevel = settings.logging ? 5 : 2
+
+  children.each {
+    it.setLogLevel(state.logLevel)
+  }
+  
+  unsubscribe()
+
+  // Refresh data every 5 minutes
+  runEvery5Minutes('refresh')
+
+  // Reauthenticate every 3 hours
+  runEvery3Hours('authenticate')
 }
 
 def uninstalled() {
@@ -189,19 +199,21 @@ def uninstalled() {
 private authenticate() {
   logger "${app.label}: authenticate", 'trace'
 
-  user_init()
+  initialiseSession()
   if (!state.currentError) {
-    user_login()
+    login()
   }
 }
 
 private updateChildDevices() {
+  logger "${app.label}: updateChildDevices", 'trace'
+
   // Remove child devices for unselected options
   def children = getChildDevices()
   children.each {
-    log.debug "Child device ${it.getAttributeId()}"
-    if (!settings.selectedDevices.contains(it.deviceNetworkId.replace('ZIP-', ''))) {
-      log.debug "Deleting device ${it.name} (${it.deviceNetworkId})"
+    def zipatoId = it.getZipatoId()
+    if (!settings.selectedSwitches.contains(zipatoId)) {
+      logger "Deleting device ${it.name} (${it.deviceNetworkId})"
       try {
         deleteChildDevice(it.deviceNetworkId)
       }
@@ -212,26 +224,32 @@ private updateChildDevices() {
   }
 
   // Create child devices for selected options
-  settings.selectedDevices?.each {
-    def isChild = getChildDevice("ZIP-${it}")
+  settings.selectedSwitches?.each {
+    def isChild = getChildDevice("ZIPATO-${it}")
     if (!isChild) {
-      def label = state.devices?.get(it)?.device?.name
-      createChildDevice(label, 'Zipato Integrated Switch', it)
+      def label = state.switches?.get(it)?.device?.name
+      createChildDevice(label, 'Zipato Switch', it)
     }
   }
 }
 
-private createChildDevice(label, deviceType, attributeId) {
-  def deviceId = "ZIP-${attributeId}"
-  log.debug "Creating ${deviceType} ${deviceId} with label '${label}'"
+private createChildDevice(label, deviceType, zipatoId) {
+  logger "${app.label}: createChildDevice", 'trace'
+
+  def deviceId = "ZIPATO-${zipatoId}"
+  logger "Creating ${deviceType} ${deviceId} with label '${label}'"
 
   def device = addChildDevice(app.namespace, deviceType, deviceId, null, [ 'label': label ])
   if (device) {
-    device.setState(['attributeId': attributeId])
+    log.debug "setting zipatoId ${zipatoId} and logLevel ${state.logLevel} on child device ${device}"
+    device.setZipatoId(zipatoId)
+    device.setLogLevel(state.logLevel)
   }
 }
 
 private removeAllChildDevices(delete) {
+  logger "${app.label}: removeAllChildDevices", 'trace'
+
   def devices = getChildDevices()
   devices.each {
     deleteChildDevice(it.deviceNetworkId)
@@ -242,8 +260,8 @@ private removeAllChildDevices(delete) {
 
 //#region Zipato API: private functions
 
-private user_init() {
-  logger "${app.label}: user_init", 'trace'
+private initialiseSession() {
+  logger "${app.label}: initialiseSession", 'trace'
   
   def requestParams = [
     uri: apiRootUrl(),
@@ -272,8 +290,8 @@ private user_init() {
   }
 }
 
-private user_login() {
-  logger "${app.label}: user_login", 'trace'
+private login() {
+  logger "${app.label}: login", 'trace'
 
   def token = sha1(state.authNonce + sha1(settings.zipatoPassword))
 
@@ -308,8 +326,8 @@ private user_login() {
 }
 
 // TODO: move the filtering into a wrapper or something
-private attributes_get_valid() {
-  logger "${app.label}: attributes_get_valid()", 'trace'
+private fetchDevices() {
+  logger "${app.label}: fetchDevices", 'trace'
   
   def requestParams = [
     uri: apiRootUrl(),
@@ -328,15 +346,15 @@ private attributes_get_valid() {
       logger "Response: ${response.status}; ${response.data}"
 
       if (response.status == 200 && response.data) {
-        def devices = [:]
+        def switches = [:]
         response.data.each {
           if (it?.definition?.cluster == 'com.zipato.cluster.OnOff') {
-            devices[it.uuid] = it
+            switches[it.uuid] = it
           }
         }
         
-        logger "Devices found: ${devices}"
-        state.devices = devices
+        logger "Switches found: ${switches}"
+        state.switches = switches
       }
       else {
         apiError(response.status, "Unexpected status code: ${response.status}")
@@ -347,8 +365,8 @@ private attributes_get_valid() {
   }
 }
 
-private attributes_get_values() {
-  logger "${app.label}: attributes_get_valid()", 'trace'
+private fetchAllValues() {
+  logger "${app.label}: fetchAllValues", 'trace'
   
   def requestParams = [
     uri: apiRootUrl(),
@@ -359,37 +377,38 @@ private attributes_get_values() {
     ],
   ]
 
-  try {
-    httpGet(requestParams) { response ->
-      logger "Response: ${response.status}; ${response.data}"
+  asynchttp_v1.get('fetchAllValuesResponseHandler', requestParams, [ callback: callback ])
+}
 
-      if (response.status == 200 && response.data) {
-        def deviceValues = [:]
-        response.data.each {
-          deviceValues[it.uuid] = it
-        }
-        
-        state.deviceValues = deviceValues
-      }
-      else {
-        apiError(response.status, "Unexpected status code: ${response.status}")
-      }
-    }
-  } catch (groovyx.net.http.HttpResponseException e) {
-    apiError(e.statusCode, e.message)
+private fetchAllValuesResponseHandler(response, data) {
+  if (response.hasError()) {
+    logger "API error received: ${response.getErrorMessage()}"
+    return
   }
+
+  logger "Fetch all values: ${response.status}: ${response.data}"
+
+  def attributeValues = [:]
+  response.json.each {
+    attributeValues[it.uuid] = it.value.value
+  }
+  
+  state.attributeValues = attributeValues
+  logger "Fetched attribute values: ${attributeValues}"
+
+  updateChildren()
 }
 
 //#endregion: Zipato API: private functions
 
 //#region Zipato API: methods called by child devices
 
-boolean attribute_put_value(attributeId, value) {
-  logger "${app.label}: attribute_put_value", 'trace'
+void pushSwitchState(zipatoId, value) {
+  logger "${app.label}: pushSwitchState", 'trace'
 
   def requestParams = [
     uri: apiRootUrl(),
-    path: "attributes/${attributeId}/value",
+    path: "attributes/${zipatoId}/value",
     contentType: jsonContentType(),
     body: [ 'value': value ],
     headers: [
@@ -397,26 +416,47 @@ boolean attribute_put_value(attributeId, value) {
     ],
   ]
 
-  try {
-    httpPutJson(requestParams) { response ->
-      if (response.status == 202) {
-        logger "Attribute updated: ${attribute} ${value}"
-        return true
-      }
-      else {
-        apiError(response.status, "Unexpected status code: ${response.status}")
-        return false
-      }
-    }
-  } catch (groovyx.net.http.HttpResponseException e) {
-    apiError(e.statusCode, e.message)
-    return false
+  asynchttp_v1.put('pushSwitchStateResponseHandler', requestParams, [ 'zipatoId': zipatoId, 'switchState': value ] )
+}
+
+private pushSwitchStateResponseHandler(response, data) { 
+  if (response.hasError()) {
+    logger "API error received: ${response.getErrorMessage()}"
+    return
   }
+
+  logger "Push switch state: ${response.status}: ${response.data}"
+
+  def state = [ switchState: data.switchState ]
+
+  def child = getChildDevice("ZIPATO-${data.zipatoId}")
+  child.updateState(state)
 }
 
 //#endregion Zipato API: available to child devices
 
 //#region Helpers: private
+
+private updateChildren() {
+  logger "${app.label}: updateChildren", 'trace'
+
+  def children = getChildDevices()
+  children.each {
+    def zipatoId = it.getZipatoId()
+    def zipatoType = it.getZipatoType()
+    def attributeValue = state.attributeValues[zipatoId]
+
+    logger "Updating child ${zipatoType} ${zipatoId} with value ${attributeValue}"
+
+    switch (zipatoType) {
+      case 'switch':
+        it.updateState([
+          switchState: "${attributeValue}".toBoolean(),
+        ])
+        break
+    }
+  }
+}
 
 private apiError(statusCode, message) {
   logger "Api error: ${statusCode}; ${message}", 'warn'
@@ -433,23 +473,7 @@ private sha1(String value) {
   return new BigInteger(1, digest).toString(16)
 }
 
-//#endregion Helpers: private
-
-//#region Helpers: available to child devices
-
-void refresh() {
-  attributes_get_values()
-  
-  def children = getChildDevices()
-  children.each {
-    def attributeId = it.getAttributeId()
-    def value = state.deviceValues?.get(attributeId)?.value.value
-    log.debug "Value for ${it}: ${value}"
-    it.setValue(value)
-  }
-}
-
-void logger(msg, level = 'debug') {
+private logger(msg, level = 'debug') {
   switch (level) {
     case 'error':
       if (state.logLevel >= 1) log.error msg
@@ -470,6 +494,14 @@ void logger(msg, level = 'debug') {
       log.debug msg
       break
   }
+}
+
+//#endregion Helpers: private
+
+//#region Helpers: available to child devices
+
+void refresh() {
+  fetchAllValues()
 }
 
 //#endregion Helpers: available to child devices

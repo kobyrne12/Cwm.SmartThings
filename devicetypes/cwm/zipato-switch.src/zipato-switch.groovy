@@ -3,9 +3,11 @@
  * 
  *  Copyright 2018 Neil Cumpstey
  * 
- *  A SmartThings device handler which wraps a virtual device on a Zipato box.
- *  It can be used to interact with devices such as LightwaveRF, which are not compatible with a SmartThings hub.
+ *  A SmartThings device handler which wraps a device on a Zipato box.
+ *  It can be used to interact with devices on a Zipato box, such as LightwaveRF
+ *  which is not directly compatible with a SmartThings hub.
  *
+ *  ---
  *  Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except
  *  in compliance with the License. You may obtain a copy of the License at:
  *
@@ -14,76 +16,126 @@
  *  Unless required by applicable law or agreed to in writing, software distributed under the License is distributed
  *  on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the License
  *  for the specific language governing permissions and limitations under the License.
- *
  */
 metadata {
-  definition (name: "Zipato Switch", namespace: "cwm", author: "Neil Cumpstey", vid: "generic-switch") {
-    capability "Actuator"
-    capability "Switch"
-    capability "Health Check"
+  definition (name: 'Zipato Switch', namespace: 'cwm', author: 'Neil Cumpstey', vid: 'generic-switch') {
+    capability 'Actuator'
+    capability 'Switch'
+    capability 'Health Check'
+
+    command 'refresh'
   }
 
   preferences {
-    input("serial", "text", title: "Zipabox serial", description: "Serial number of the Zipabox.")
-    input("apiKey", "text", title: "Api key", description: "Zipato api key.")
-    input("endpoint", "text", title: "Endpoint id", description: "Id of the virtual device endpoint (guid).")
-    input("attribute", "text", title: "Attribute name", description: "Name of the attribute (eg. value2).")
-    input("logging", "bool", title: "Debug logging", description: "Enable logging of debugging messages.")
   }
 
   tiles(scale: 2) {
-    multiAttributeTile(name:"switch", type: "lighting", width: 6, height: 4, canChangeIcon: true){
-      tileAttribute ("device.switch", key: "PRIMARY_CONTROL") {
-        attributeState "on", label:'${name}', action:"switch.off", icon:"st.Home.home30", backgroundColor:"#00A0DC", nextState:"turningOff"
-        attributeState "off", label:'${name}', action:"switch.on", icon:"st.Home.home30", backgroundColor:"#FFFFFF", nextState:"turningOn", defaultState: true
-        attributeState "turningOn", label:'Turning On', action:"switch.off", icon:"st.Home.home30", backgroundColor:"#00A0DC", nextState:"turningOn"
-        attributeState "turningOff", label:'Turning Off', action:"switch.on", icon:"st.Home.home30", backgroundColor:"#FFFFFF", nextState:"turningOff"
+    multiAttributeTile(name:'switch', type: 'lighting', width: 6, height: 4, canChangeIcon: true) {
+      tileAttribute ('device.switch', key: 'PRIMARY_CONTROL') {
+        attributeState 'on', label: '${name}', action: 'switch.off', icon: 'st.Home.home30', backgroundColor:'#00a0dc', nextState: 'turningOff'
+        attributeState 'off', label: '${name}', action: 'switch.on', icon: 'st.Home.home30', backgroundColor:'#ffffff', nextState: 'turningOn'
+        attributeState 'turningOn', label: 'Turning on', action: 'switch.off', icon: 'st.Home.home30', backgroundColor: '#00a0dc', nextState: 'turningOn'
+        attributeState 'turningOff', label: 'Turning off', action: 'switch.on', icon: 'st.Home.home30', backgroundColor: '#ffffff', nextState: 'turningOff'
       }
     }
-
-    standardTile("explicitOn", "device.switch", width: 2, height: 2, decoration: "flat") {
-      state "default", label: "On", action: "switch.on", icon: "st.Home.home30", backgroundColor: "#ffffff"
+    standardTile('brand', 'device', width: 1, height: 1, decoration: 'flat') {
+      state 'default', label: '', icon: 'https://raw.githubusercontent.com/cumpstey/Cwm.SmartThings/master/smartapps/cwm/zipato-integration.src/assets/zipato-60.png'
     }
-    standardTile("explicitOff", "device.switch", width: 2, height: 2, decoration: "flat") {
-      state "default", label: "Off", action: "switch.off", icon: "st.Home.home30", backgroundColor: "#ffffff"
+    standardTile('refresh', 'device', width: 1, height: 1, decoration: 'flat') {
+      state 'default', label: '', action: 'refresh', icon: 'st.secondary.refresh'
+    }
+    standardTile('explicitOn', 'device.switch', width: 2, height: 1, decoration: 'flat') {
+      state 'default', label: 'On', action: 'switch.on', icon: 'st.Home.home30', backgroundColor: '#ffffff'
+    }
+    standardTile('explicitOff', 'device.switch', width: 2, height: 1, decoration: 'flat') {
+      state 'default', label: 'Off', action: 'switch.off', icon: 'st.Home.home30', backgroundColor: '#ffffff'
     }
 
-    main(["switch"])
-    details(["switch", "explicitOn", "explicitOff"])
+    main(['switch'])
+    details(['switch', 'brand', 'refresh', 'explicitOn', 'explicitOff'])
   }
 }
 
+//#region Methods called by parent app
+
+void setLogLevel(Integer logLevel) {
+  state.logLevel = logLevel
+}
+
+void setZipatoId(String zipatoId) {
+  log.debug ("setting zipato id ${zipatoId}")
+  state.zipatoId = zipatoId
+}
+
+String getZipatoId() {
+  return "${state.zipatoId}"
+}
+
+String getZipatoType() {
+  return 'switch'
+}
+
+void updateState(values) {
+  logger "${device.label}: updateState: ${values}"
+
+  sendEvent(name: 'switch', value: (values.switchState ? 'on' : 'off'), isStateChange: true)
+}
+
+//#endregion Methods called by parent app
+
+//#region Actions
+
 def parse(String description) {
-  logging "Parsing '${description}'"
+  logger "${device.label}: parse", 'trace'
+}
+
+def refresh() {
+  logger "${device.label}: refresh", 'trace'
+
+  parent.refresh()
 }
 
 def on() {
-  logging "Executing 'on'"
-  sendEvent(name: "switch", value: 'turningOn', isStateChange: true)
-  request(1, 'on')
+  logger "${device.label}: on", 'trace'
+
+  sendEvent(name: 'switch', value: 'turningOn', isStateChange: true)
+
+  parent.pushSwitchState(state.zipatoId, 1)
 }
 
 def off() {
-  logging "Executing 'off'"
-  sendEvent(name: "switch", value: 'turningOff', isStateChange: true)
-  request(-1, 'off')
+  logger "${device.label}: off", 'trace'
+
+  sendEvent(name: 'switch', value: 'turningOff', isStateChange: true)
+
+  parent.pushSwitchState(state.zipatoId, 0)
 }
 
-private def request(value, nextState) {
-  def url = "https://my.zipato.com/zipato-web/remoting/attribute/set?serial=${settings.serial}&apiKey=${settings.apiKey}&ep=${settings.endpoint}&${settings.attribute}=${value}"
+//#endregion Actions
 
-  def params = [
-    uri: url,
-  ]
+//#region Helpers
 
-  httpGet(params) { response ->
-    logging "Response data from '${nextState}' command: ${response.data}"
-    sendEvent(name: "switch", value: nextState, isStateChange: true)
+void logger(msg, level = 'debug') {
+  switch (level) {
+    case 'error':
+      if (state.logLevel >= 1) log.error msg
+      break
+    case 'warn':
+      if (state.logLevel >= 2) log.warn msg
+      break
+    case 'info':
+      if (state.logLevel >= 3) log.info msg
+      break
+    case 'debug':
+      if (state.logLevel >= 4) log.debug msg
+      break
+    case 'trace':
+      if (state.logLevel >= 5) log.trace msg
+      break
+    default:
+      log.debug msg
+      break
   }
 }
 
-private def logging(message) {
-  if (settings.logging){
-    log.debug "$message"
-  }
-}
+//#endregion Helpers
