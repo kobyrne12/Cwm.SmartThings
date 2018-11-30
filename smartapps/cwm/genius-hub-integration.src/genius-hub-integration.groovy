@@ -259,12 +259,12 @@ private updateChildDevices() {
     }
     
     if (delete) {
-      log.debug "Deleting device '${it.label}' (${it.deviceNetworkId})"
+      logger "Deleting device '${it.label}' (${it.deviceNetworkId})"
       try {
         deleteChildDevice(it.deviceNetworkId)
       }
       catch(e) {
-        logger "Error deleting device '${it.label}' (${it.deviceNetworkId}): ${e}"
+        logger "Error deleting device '${it.label}' (${it.deviceNetworkId}): ${e}", 'error'
       }
     }
   }
@@ -333,6 +333,9 @@ private removeAllChildDevices(delete) {
 
 //#region Genius Hub API: private functions
 
+/**
+ * Make a request to the authentication test api endpoint to verify the credentials.
+ */
 private verifyAuthentication() {
   logger "${app.label}: verifyAuthentication", 'trace'
   
@@ -364,9 +367,12 @@ private verifyAuthentication() {
   }
 }
 
-private fetchZones() {
+/**
+ * Fetch information about all zones from the api, and store it in state.
+ */
+private fetchZones(Closure callback = null) {
   logger "${app.label}: fetchZones", 'trace'
-  
+ 
   def requestParams = [
     uri: apiRootUrl(),
     path: 'zones',
@@ -382,7 +388,7 @@ private fetchZones() {
         def houses = [:]
         def rooms = [:]
         def switches = [:]
-        log.debug "${response.data.data.size()} devices returned by the api"
+        logger "${response.data.data.size()} devices returned by the api"
         response.data.data?.each {
           switch (it?.iType) {
             case 1:
@@ -395,7 +401,7 @@ private fetchZones() {
               rooms["id_${it.iID}"] = mapRoom(it)
               break;
             default:
-              logger "Unknown device type: ${it.iType} ${it.strName}"
+              logger "Unknown device type: ${it.iType} ${it.strName}", 'warn'
               break;
           }
         }
@@ -404,9 +410,10 @@ private fetchZones() {
         state.houses = houses
         state.rooms = rooms
         state.switches = switches
-        log.debug "Houses: ${houses}"
-        log.debug "Rooms: ${rooms}"
-        log.debug "Switches: ${switches}"
+
+        if (callback) {
+          callback()
+        }
       }
       else {
         apiError(response.status, "Unexpected status code: ${response.status}")
@@ -417,13 +424,71 @@ private fetchZones() {
   }
 }
 
+/**
+ * Make a request to the api to set the mode of a zone.
+ *
+ * @param geniusId  Id of the zone within the Genius Hub.
+ * @param mode  Mode which the zone should be switched to.
+ */
+private void pushMode(Integer geniusId, String mode) {
+  logger "${app.label}: pushMode(${geniusId}, ${mode})", 'trace'
+
+  def geniusMode = mapMode(mode)
+  if (!geniusMode) {
+    return
+  }
+
+  def requestParams = [
+    uri: apiRootUrl(),
+    path: "zone/${geniusId}",
+    contentType: 'application/json',
+    body: [
+      'iMode': geniusMode
+    ],
+    headers: [
+      'Authorization': getAuthorizationHeader()
+    ],
+  ]
+
+  asynchttp_v1.patch('pushModeResponseHandler', requestParams, [ 'geniusId': geniusId ] )
+}
+
+/**
+ * Handles the response from the request to the api to set the mode of a zone.
+ *
+ * @param response  Response.
+ * @param data  Additional data passed from the calling method.
+ */
+private pushModeResponseHandler(response, data) { 
+  if (response.hasError()) {
+    logger "API error received: ${response.getErrorMessage()}"
+    return
+  }
+
+  logger "Push mode: ${response.json}"
+
+  def updates = [:]
+  def operatingMode = mapMode(response.json.data.iMode)
+  if (operatingMode) {
+    updates.operatingMode = operatingMode
+  }
+
+  def child = getChildDevice("GENIUS-${data.geniusId}")
+  child.updateState(updates)
+}
+
 //#endregion: Genius Hub API: private functions
 
 //#region Genius Hub API: methods called by child devices
 
-void pushSwitchState(geniusId, value) {
-  logger "${app.label}: pushSwitchState", 'trace'
-  logger "Push switch state: ${geniusId}, ${value}"
+/**
+ * Make a request to the api to override the state of a switch.
+ *
+ * @param geniusId  Id of the switch zone within the Genius Hub.
+ * @param value  On/off state which the switch should be switched to.
+ */
+void pushSwitchState(Integer geniusId, Boolean value) {
+  logger "${app.label}: pushSwitchState(${geniusId}, ${value})", 'trace'
 
   def requestParams = [
     uri: apiRootUrl(),
@@ -442,6 +507,12 @@ void pushSwitchState(geniusId, value) {
   asynchttp_v1.patch('pushSwitchStateResponseHandler', requestParams, [ 'geniusId': geniusId, 'switchState': value ] )
 }
 
+/**
+ * Handles the response from the request to the api to override the state of a switch.
+ *
+ * @param response  Response.
+ * @param data  Additional data passed from the calling method.
+ */
 private pushSwitchStateResponseHandler(response, data) { 
   if (response.hasError()) {
     logger "API error received: ${response.getErrorMessage()}"
@@ -450,19 +521,24 @@ private pushSwitchStateResponseHandler(response, data) {
 
   logger "Push switch state: ${response.json}"
 
-  def state = [ switchState: data.switchState ]
+  def updates = [ switchState: data.switchState ]
   def operatingMode = mapMode(response.json.data.iMode)
   if (operatingMode) {
-    state.operatingMode = operatingMode
+    updates.operatingMode = operatingMode
   }
 
   def child = getChildDevice("GENIUS-${data.geniusId}")
-  child.updateState(state)
+  child.updateState(updates)
 }
 
-def pushRoomTemperature(geniusId, value) {
-  logger "${app.label}: pushRoomTemperature", 'trace'
-  logger "Push room temperature: ${geniusId}, ${value}"
+/**
+ * Make a request to the api to override the room temperature.
+ *
+ * @param geniusId  Id of the room zone within the Genius Hub.
+ * @param value  Temperature in Celcius.
+ */
+void pushRoomTemperature(Integer geniusId, Double value) {
+  logger "${app.label}: pushRoomTemperature(${geniusId}, ${value})", 'trace'
 
   def requestParams = [
     uri: apiRootUrl(),
@@ -478,10 +554,16 @@ def pushRoomTemperature(geniusId, value) {
     ],
   ]
 
-  asynchttp_v1.patch('pushRoomTemperatureResponseHandler', requestParams, ['geniusId': geniusId] )
+  asynchttp_v1.patch('pushRoomTemperatureResponseHandler', requestParams, [geniusId: geniusId] )
 }
 
-def pushRoomTemperatureResponseHandler(response, data) {
+/**
+ * Handles the response from the request to the api to override the room temperature.
+ *
+ * @param response  Response.
+ * @param data  Additional data passed from the calling method.
+ */
+private pushRoomTemperatureResponseHandler(response, data) {
   if (response.hasError()) {
     logger "API error received: ${response.getErrorMessage()}"
     return
@@ -489,14 +571,21 @@ def pushRoomTemperatureResponseHandler(response, data) {
 
   logger "Push room temperature: ${response}"
 
-  def state = [:]
+  def updates = [:]
   def operatingMode = mapMode(response.json.data.iMode)
   if (operatingMode) {
-    state.operatingMode = operatingMode
+    updates.operatingMode = operatingMode
+  }
+
+  def overrideEndTime = null
+  if (operatingMode == 'override') {
+    use(groovy.time.TimeCategory) {
+        updates.overrideEndTime = new Date() + response.json.data.iBoostTimeRemaining.second 
+    }
   }
 
   def child = getChildDevice("GENIUS-${data.geniusId}")
-  child.updateState(state)
+  child.updateState(updates)
 }
 
 //#endregion Genius Hub API: available to child devices
@@ -566,10 +655,20 @@ private mapRoom(device) {
 
   def illuminance = children.findAll { it.value.type == 'sensor' }.collect{ it.value.illuminance }.max { it }
 
+  def operatingMode = mapMode(device.iMode)
+  def overrideEndTime = null
+  if (operatingMode == 'override') {
+    use(groovy.time.TimeCategory) {
+        overrideEndTime = new Date() + device.iBoostTimeRemaining.second 
+    }
+  }
+
   return [
     id: device.iID,
     name: device.strName,
-    operatingMode: mapMode(device.iMode),
+    operatingMode: operatingMode,
+    overrideEndTime: overrideEndTime,
+    defaultOperatingMode: mapMode(device.iBaseMode),
     sensorTemperature: device.fPV,
     minBattery: minBattery,
     illuminance: illuminance,
@@ -583,8 +682,15 @@ private mapMode(mode) {
     case 2: return 'timer'
     case 4: return 'footprint'
     case 16: return 'override'
+    case 'off': return 1
+    case 'timer': return 2
+    case 'footprint': return 4
+    case 'override': return 16
     default:
-      logger "Unknown operating mode: ${mode}"
+      if (mode != null) {
+        logger "Unknown operating mode: ${mode}", 'warn'
+      }
+
       return null
   }
 }
@@ -593,6 +699,9 @@ private mapMode(mode) {
 
 //#region Helpers: available to child devices
 
+/**
+ * Refresh the data on all devices.
+ */
 void refresh() {
   logger "${app.label}: refresh", 'trace'
 
@@ -612,6 +721,7 @@ void refresh() {
         if (geniusDevice) {
           it.updateState([
             operatingMode: geniusDevice.operatingMode,
+            overrideEndTime: geniusDevice.overrideEndTime,
             sensorTemperature: geniusDevice.sensorTemperature,
             minBattery: geniusDevice.minBattery,
             illuminance: geniusDevice.illuminance,
@@ -631,8 +741,21 @@ void refresh() {
   }
 }
 
+/**
+ * Revert an overridden device to its base state.
+ *
+ * @param geniusId  Id of the zone within the Genius Hub.
+ */
+void revert(Integer geniusId) {
+  logger "${app.label}: refresh", 'trace'
+
+  fetchZones({
+    def mode = state.rooms["id_${geniusId}"].defaultOperatingMode
+    pushMode(geniusId, mode)
+  })
+}
+
 void logger(msg, level = 'debug') {
-  state.logLevel = 5
   switch (level) {
     case 'error':
       if (state.logLevel >= 1) log.error msg
