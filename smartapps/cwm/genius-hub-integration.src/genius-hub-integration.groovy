@@ -118,74 +118,27 @@ def manageDevicesPage() {
     return mainPage()
   }
 
-  // Check if device selection has changed, and update child devices if it has
-  def selectedDevicesKey = settings.selectedHouses?.sort(false)?.join(',') + ';' +
-                           settings.selectedRooms?.sort(false)?.join(',') + ';' +
-                           settings.selectedSwitches?.sort(false)?.join(',')
-  if (state.selectedDevicesKey != selectedDevicesKey) {
-    updateChildDevices()
-    state.selectedDevicesKey = selectedDevicesKey
-  }
-
-  // Generate options from list of available devices
-  def houseOptions = [:]
-  state.houses.each { key, value ->
-    houseOptions[key] = value.name
-  }
-
-  def roomOptions = [:]
-  state.rooms.each { key, value ->
-    roomOptions[key] = value.name
-  }
-
-  def switchOptions = [:]
-  state.switches.each { key, value ->
-    switchOptions[key] = value.name
+  // Set up device options
+  def options = [:]
+  state.devices.each { key, value ->
+    options[key] = value.name
   }
 
   // Set empty list warning message
-  def housesMessage = null
-  if (houseOptions == [:]) {
-    housesMessage = 'No houses available.'
-  }
-  
-  def roomsMessage = null
-  if (roomOptions == [:]) {
-    roomsMessage = 'No rooms available.'
-  }
-  
-  def switchesMessage = null
-  if (switchOptions == [:]) {
-    switchesMessage = 'No switches available.'
+  def message = null
+  if (options == [:]) {
+    message = 'No devices available.'
   }
 
   return dynamicPage (name: "manageDevicesPage", title: "Select devices", install: false, uninstall: false) {
-    if (housesMessage) {
+    if (message) {
       section {
-        paragraph "${housesMessage}"
+        paragraph "${message}"
       }
     }
     section {
-      input name: 'selectedHouses', type: "enum", required: false, multiple: true,
-            title: "Select houses (${houseOptions.size() ?: 0} found)", options: houseOptions, submitOnChange: true
-    }
-    if (roomsMessage) {
-      section {
-        paragraph "${roomsMessage}"
-      }
-    }
-    section {
-      input name: 'selectedRooms', type: "enum", required: false, multiple: true,
-            title: "Select rooms (${roomOptions.size() ?: 0} found)", options: roomOptions, submitOnChange: true
-    }
-    if (switchesMessage) {
-      section {
-        paragraph "${switchesMessage}"
-      }
-    }
-    section {
-      input name: 'selectedSwitches', type: "enum", required: false, multiple: true,
-            title: "Select switches (${switchOptions.size() ?: 0} found)", options: switchOptions, submitOnChange: true
+      input name: 'selectedDevices', type: "enum", required: false, multiple: true,
+            title: "Select devices (${options.size() ?: 0} found)", options: options //, submitOnChange: true
     }
   }
 }
@@ -205,8 +158,12 @@ def updated() {
   logger "${app.label}: updated", 'trace'
 
   if (settings.logging) {
+    state.logLevel = 5
+  } else {
     state.logLevel = 2
   }
+
+  updateChildDevices()
 
   children.each {
     it.setLogLevel(state.logLevel)
@@ -226,40 +183,30 @@ def uninstalled() {
 
 //#region Service manager functions
 
-private authenticate() {
+private void authenticate() {
   logger "${app.label}: authenticate", 'trace'
 
   verifyAuthentication()
 }
 
-private updateChildDevices() {
+private void updateChildDevices() {
   logger "${app.label}: updateChildDevices", 'trace'
+
+  if (!settings.selectedDevices) {
+    removeAllChildDevices()
+    return
+  }
 
   // Remove child devices for unselected options
   def children = getChildDevices()
   children.each {
     def geniusId = it.getGeniusId()
-    def geniusType = it.getGeniusType()
 
-    def delete = false;
-    switch (geniusType) {
-      case 'house':
-        if (!settings.selectedHouses || !settings.selectedHouses.contains(geniusId)) { delete = true }
-        break
-      case 'room':
-        if (!settings.selectedRooms || !settings.selectedRooms.contains(geniusId)) { delete = true }
-        break
-      case 'switch':
-        if (!settings.selectedSwitches || !settings.selectedSwitches.contains(geniusId)) { delete = true }
-        break
-      default:
-        logger "Unexpected Genius Hub device type for device ${geniusId}: ${geniusType}"
-        delete = true
-        break;
-    }
-    
-    if (delete) {
-      logger "Deleting device '${it.label}' (${it.deviceNetworkId})"
+    def id = "id_${geniusId}"
+
+    // `contains` doesn't work. I don't know why.
+    if (settings.selectedDevices.disjoint([id])) {
+      logger "Deleting device '${it.label}' (${geniusId})"
       try {
         deleteChildDevice(it.deviceNetworkId)
       }
@@ -270,57 +217,41 @@ private updateChildDevices() {
   }
 
   // Create child devices for selected options
-  settings.selectedHouses?.each {  
-    def geniusDevice = state.houses?.get(it)
+  settings.selectedDevices.each {
+    def geniusDevice = state.devices?.get(it)
+
     if (!geniusDevice) {
-      logger "Inconsistent state: house ${it} selected but not found in Genius Hub devices", 'warn'
+      logger "Inconsistent state: device ${it} selected but not found in Genius Hub devices", 'warn'
       return
     }
 
-    createChildDevice('Genius Hub House', 'house', geniusDevice.id, geniusDevice.name)
-  }
-  
-  settings.selectedRooms?.each {  
-    def geniusDevice = state.rooms?.get(it)
-    if (!geniusDevice) {
-      logger "Inconsistent state: room ${it} selected but not found in Genius Hub devices", 'warn'
-      return
-    }
-
-    createChildDevice('Genius Hub Room', 'room', geniusDevice.id, geniusDevice.name)
-  }
-
-  settings.selectedSwitches?.each {  
-    def geniusDevice = state.switches?.get(it)
-    if (!geniusDevice) {
-      logger "Inconsistent state: switch ${it} selected but not found in Genius Hub devices", 'warn'
-      return
-    }
-
-    createChildDevice('Genius Hub Switch', 'switch', geniusDevice.id, geniusDevice.name)
+    createChildDevice(geniusDevice.type, geniusDevice.id, geniusDevice.name)
   }
 }
 
-private createChildDevice(deviceType, geniusType, geniusId, label) {
+private void createChildDevice(deviceType, geniusId, label) {
   logger "${app.label}: createChildDevice", 'trace'
 
-  def deviceId = "GENIUS-${geniusId}"
-  def child = getChildDevice(deviceId)
+  def deviceNetworkId = "GENIUS-${geniusId}"
+  def child = getChildDevice(deviceNetworkId)
   if (child) {
-    logger "Child device ${geniusId} already exists. Not creating."
+    logger "Child device ${deviceNetworkId} already exists. Not creating."
     return
   }
 
-  logger "Creating ${deviceType} ${deviceId} with label '${label}'"
+  def deviceHandler = getDeviceHandlerFor(deviceType)
 
-  def device = addChildDevice(app.namespace, deviceType, deviceId, null, [ 'label': label ])
+  logger "Creating ${deviceType} ${geniusId} with label '${label}' and device handler ${deviceHandler}"
+
+  def device = addChildDevice(app.namespace, deviceHandler, deviceNetworkId, null, [ 'label': label ])
+  logger "Device created: ${device}"
   if (device) {
     device.setGeniusId(geniusId)
     device.setLogLevel(state.logLevel)
   }
 }
 
-private removeAllChildDevices(delete) {
+private void removeAllChildDevices(delete) {
   logger "${app.label}: removeAllChildDevices", 'trace'
 
   def devices = getChildDevices()
@@ -336,7 +267,7 @@ private removeAllChildDevices(delete) {
 /**
  * Make a request to the authentication test api endpoint to verify the credentials.
  */
-private verifyAuthentication() {
+private void verifyAuthentication() {
   logger "${app.label}: verifyAuthentication", 'trace'
   
   def requestParams = [
@@ -370,7 +301,7 @@ private verifyAuthentication() {
 /**
  * Fetch information about all zones from the api, and store it in state.
  */
-private fetchZones(Closure callback = null) {
+private void fetchZones(Closure callback = null) {
   logger "${app.label}: fetchZones", 'trace'
  
   def requestParams = [
@@ -385,20 +316,19 @@ private fetchZones(Closure callback = null) {
   try {
     httpGet(requestParams) { response ->
       if (response.status == 200 && response.data) {
-        def houses = [:]
-        def rooms = [:]
-        def switches = [:]
         logger "${response.data.data.size()} devices returned by the api"
+
+        def devices = [:]
         response.data.data?.each {
           switch (it?.iType) {
             case 1:
-              houses["id_${it.iID}"] = mapHouse(it)
+              devices["id_${it.iID}"] = mapHouse(it)
               break;
             case 2:
-              switches["id_${it.iID}"] = mapSwitch(it)
+              devices["id_${it.iID}"] = mapSwitch(it)
               break;
             case 3:
-              rooms["id_${it.iID}"] = mapRoom(it)
+              devices["id_${it.iID}"] = mapRoom(it)
               break;
             default:
               logger "Unknown device type: ${it.iType} ${it.strName}", 'warn'
@@ -406,10 +336,8 @@ private fetchZones(Closure callback = null) {
           }
         }
         
-        logger "Found: ${houses.size()} houses; ${rooms.size()} rooms; ${switches.size()} switches"
-        state.houses = houses
-        state.rooms = rooms
-        state.switches = switches
+        logger "Found: ${devices.size()} devices"
+        state.devices = devices
 
         if (callback) {
           callback()
@@ -520,11 +448,20 @@ private pushSwitchStateResponseHandler(response, data) {
   }
 
   logger "Push switch state: ${response.json}"
+  logger "Push switch state: ${response.json.data.iMode} ${response.json.data.iBoostTimeRemaining}"
 
   def updates = [ switchState: data.switchState ]
+
   def operatingMode = mapMode(response.json.data.iMode)
   if (operatingMode) {
     updates.operatingMode = operatingMode
+  }
+
+  def overrideEndTime = null
+  if (operatingMode == 'override' && response.json.data.iBoostTimeRemaining) {
+    use(groovy.time.TimeCategory) {
+        updates.overrideEndTime = new Date() + response.json.data.iBoostTimeRemaining.second 
+    }
   }
 
   def child = getChildDevice("GENIUS-${data.geniusId}")
@@ -572,13 +509,14 @@ private pushRoomTemperatureResponseHandler(response, data) {
   logger "Push room temperature: ${response}"
 
   def updates = [:]
+
   def operatingMode = mapMode(response.json.data.iMode)
   if (operatingMode) {
     updates.operatingMode = operatingMode
   }
 
   def overrideEndTime = null
-  if (operatingMode == 'override') {
+  if (operatingMode == 'override' && response.json.data.iBoostTimeRemaining) {
     use(groovy.time.TimeCategory) {
         updates.overrideEndTime = new Date() + response.json.data.iBoostTimeRemaining.second 
     }
@@ -592,7 +530,7 @@ private pushRoomTemperatureResponseHandler(response, data) {
 
 //#region Helpers: private
 
-private apiError(statusCode, message) {
+private void apiError(statusCode, message) {
   logger "Api error: ${statusCode}; ${message}", 'warn'
   
   state.currentError = "${message}"
@@ -601,13 +539,13 @@ private apiError(statusCode, message) {
   }
 }
 
-private getAuthorizationHeader() {
+private String getAuthorizationHeader() {
   def hash = sha256(settings.geniusHubUsername + settings.geniusHubPassword)
   def encoded = "${settings.geniusHubUsername}:${hash}".bytes.encodeBase64()
   return "Basic ${encoded}"
 }
 
-private sha256(String value) {  
+private String sha256(String value) {  
   def bytesOfPassword = value.getBytes("UTF-8");  
   def md = java.security.MessageDigest.getInstance("SHA-256");  
   md.update(bytesOfPassword);  
@@ -615,23 +553,15 @@ private sha256(String value) {
   return new BigInteger(1, bytesOfEncryptedPassword).toString(16);
 }  
 
-private mapHouse(device) {
+private Map mapHouse(device) {
   return [
     id: device.iID,
+    type: 'house',
     name: device.strName,
   ]
 }
 
-private mapSwitch(device) {
-  return [
-    id: device.iID,
-    name: device.strName,
-    operatingMode: mapMode(device.iMode),
-    switchStatus: device.fSP,
-  ]
-}
-
-private mapRoom(device) {
+private Map mapRoom(device) {
   def children = [:]
   device.nodes.each { 
     if (it.childValues.HEATING_1) {
@@ -665,6 +595,7 @@ private mapRoom(device) {
 
   return [
     id: device.iID,
+    type: 'room',
     name: device.strName,
     operatingMode: operatingMode,
     overrideEndTime: overrideEndTime,
@@ -673,6 +604,26 @@ private mapRoom(device) {
     minBattery: minBattery,
     illuminance: illuminance,
     childNodes: children,
+  ]
+}
+
+private Map mapSwitch(device) {
+  def operatingMode = mapMode(device.iMode)
+  def overrideEndTime = null
+  if (operatingMode == 'override') {
+    use(groovy.time.TimeCategory) {
+        overrideEndTime = new Date() + device.iBoostTimeRemaining.second 
+    }
+  }
+
+  return [
+    id: device.iID,
+    type: 'switch',
+    name: device.strName,
+    operatingMode: operatingMode,
+    overrideEndTime: overrideEndTime,
+    defaultOperatingMode: mapMode(device.iBaseMode),
+    switchState: device.fSP.asBoolean(),
   ]
 }
 
@@ -695,6 +646,42 @@ private mapMode(mode) {
   }
 }
 
+private String getDeviceHandlerFor(String deviceType) {
+  switch (deviceType) {
+    case 'house':
+      return 'Genius Hub House'
+    case 'room':
+      return 'Genius Hub Room'
+    case 'switch':
+      return 'Genius Hub Switch'
+    default:
+      return null
+  }
+}
+
+private void logger(String message, String level = 'debug') {
+  switch (level) {
+    case 'error':
+      if (state.logLevel >= 1) log.error message
+      break
+    case 'warn':
+      if (state.logLevel >= 2) log.warn message
+      break
+    case 'info':
+      if (state.logLevel >= 3) log.info message
+      break
+    case 'debug':
+      if (state.logLevel >= 4) log.debug message
+      break
+    case 'trace':
+      if (state.logLevel >= 5) log.trace message
+      break
+    default:
+      log.debug message
+      break
+  }
+}
+
 //#endregion Helpers: private
 
 //#region Helpers: available to child devices
@@ -711,31 +698,31 @@ void refresh() {
   children.each {
     def geniusId = it.getGeniusId()
     def geniusType = it.getGeniusType()
+    def geniusDevice = state.devices["id_${geniusId}"]
+    if (!geniusDevice) {
+      logger "Child ${geniusType} ${geniusId} doesn't correspond to a zone on the Genius Hub", "warn"
+      return
+    }
 
     switch (geniusType) {
       case 'house':
         logger 'Not refreshing house - TODO'
         break;
       case 'room':
-        def geniusDevice = state.rooms["id_${geniusId}"]
-        if (geniusDevice) {
-          it.updateState([
-            operatingMode: geniusDevice.operatingMode,
-            overrideEndTime: geniusDevice.overrideEndTime,
-            sensorTemperature: geniusDevice.sensorTemperature,
-            minBattery: geniusDevice.minBattery,
-            illuminance: geniusDevice.illuminance,
-          ])
-        }
+        it.updateState([
+          operatingMode: geniusDevice.operatingMode,
+          overrideEndTime: geniusDevice.overrideEndTime,
+          sensorTemperature: geniusDevice.sensorTemperature,
+          minBattery: geniusDevice.minBattery,
+          illuminance: geniusDevice.illuminance,
+        ])
         break;
       case 'switch':
-        def geniusDevice = state.switches["id_${geniusId}"]
-        if (geniusDevice) {
-          it.updateState([
-            operatingMode: geniusDevice.operatingMode,
-            switchState: geniusDevice.switchState,
-          ])
-        }
+        it.updateState([
+          operatingMode: geniusDevice.operatingMode,
+          overrideEndTime: geniusDevice.overrideEndTime,
+          switchState: geniusDevice.switchState,
+        ])
         break;
     }
   }
@@ -750,32 +737,9 @@ void revert(Integer geniusId) {
   logger "${app.label}: refresh", 'trace'
 
   fetchZones({
-    def mode = state.rooms["id_${geniusId}"].defaultOperatingMode
+    def mode = state.devices["id_${geniusId}"].defaultOperatingMode
     pushMode(geniusId, mode)
   })
-}
-
-void logger(msg, level = 'debug') {
-  switch (level) {
-    case 'error':
-      if (state.logLevel >= 1) log.error msg
-      break
-    case 'warn':
-      if (state.logLevel >= 2) log.warn msg
-      break
-    case 'info':
-      if (state.logLevel >= 3) log.info msg
-      break
-    case 'debug':
-      if (state.logLevel >= 4) log.debug msg
-      break
-    case 'trace':
-      if (state.logLevel >= 5) log.trace msg
-      break
-    default:
-      log.debug msg
-      break
-  }
 }
 
 //#endregion Helpers: available to child devices

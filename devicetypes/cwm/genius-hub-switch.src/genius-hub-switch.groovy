@@ -6,6 +6,9 @@
  *  A SmartThings device handler which wraps a device on a Genius Hub.
  *
  *  ---
+ *  Disclaimer: This device handler and the associated smart app are in no way sanctioned or supported by Genius Hub.
+ *
+ *  ---
  *  Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except
  *  in compliance with the License. You may obtain a copy of the License at:
  *
@@ -21,7 +24,13 @@ metadata {
     capability 'Switch'
     capability 'Health Check'
 
+    command 'extraHour'
     command 'refresh'
+    command 'revert'
+
+    attribute 'operatingMode', 'string'
+    attribute 'overrideEndTime', 'date'
+    attribute 'overrideEndTimeDisplay', 'string'
   }
 
   preferences {
@@ -34,6 +43,13 @@ metadata {
         attributeState 'off', label: '${name}', action: 'switch.on', icon: 'st.Home.home30', backgroundColor:'#ffffff', nextState: 'turningOn'
         attributeState 'turningOn', label: 'Turning on', action: 'switch.off', icon: 'st.Home.home30', backgroundColor: '#00a0dc', nextState: 'turningOn'
         attributeState 'turningOff', label: 'Turning off', action: 'switch.on', icon: 'st.Home.home30', backgroundColor: '#ffffff', nextState: 'turningOff'
+        attributeState 'refreshing', label: 'Refreshing', action: 'switch.on', icon: 'st.Home.home30', backgroundColor: '#90bced', nextState: 'refreshing'
+      }
+      tileAttribute ('device.operatingMode', key: 'SECONDARY_CONTROL') {
+        attributeState('off', label: '${currentValue}', icon: 'https://raw.githubusercontent.com/cumpstey/Cwm.SmartThings/master/smartapps/cwm/genius-hub-integration.src/assets/genius-hub-off-120.png')
+        attributeState('override', label: '${currentValue}', icon: 'https://raw.githubusercontent.com/cumpstey/Cwm.SmartThings/master/smartapps/cwm/genius-hub-integration.src/assets/genius-hub-override-120.png')
+        attributeState('timer', label: '${currentValue}', icon: 'https://raw.githubusercontent.com/cumpstey/Cwm.SmartThings/master/smartapps/cwm/genius-hub-integration.src/assets/genius-hub-timer-120.png')
+        attributeState('footprint', label: '${currentValue}', icon: 'https://raw.githubusercontent.com/cumpstey/Cwm.SmartThings/master/smartapps/cwm/genius-hub-integration.src/assets/genius-hub-footprint-120.png')
       }
     }
     standardTile('brand', 'device', width: 1, height: 1, decoration: 'flat') {
@@ -42,79 +58,157 @@ metadata {
     standardTile('refresh', 'device', width: 1, height: 1, decoration: 'flat') {
       state 'default', label: '', action: 'refresh', icon: 'st.secondary.refresh'
     }
-    //controlTile("overrideTime", "device.time", "slider", height: 1, width: 6, inactiveLabel: true, range:"(1..20)") {
-    //  state "default", action:"setTime"
-    //}
-    // standardTile('explicitOn', 'device.switch', width: 2, height: 1, decoration: 'flat') {
-    //   state 'default', label: 'On', action: 'switch.on', icon: 'st.Home.home30', backgroundColor: '#ffffff'
-    // }
-    // standardTile('explicitOff', 'device.switch', width: 2, height: 1, decoration: 'flat') {
-    //   state 'default', label: 'Off', action: 'switch.off', icon: 'st.Home.home30', backgroundColor: '#ffffff'
-    // }
+    standardTile('extraHour', 'device', width: 1, height: 1, decoration: 'flat') {
+      state 'default', label: 'Extra hour', action: 'extraHour'
+    }
+    standardTile('revert', 'device.operatingMode', width: 1, height: 1, decoration: 'flat') {
+      state 'default', label: ''
+      state 'override', label: '', action: 'revert', icon: 'https://raw.githubusercontent.com/cumpstey/Cwm.SmartThings/master/smartapps/cwm/genius-hub-integration.src/assets/genius-hub-revert-120.png'
+    }
+    valueTile('overrideEndTime', 'device.overrideEndTimeDisplay', width: 4, height: 1) {
+      state 'default', label: '${currentValue}'
+    }
 
     main(['switch'])
-    details(['switch', 'brand', 'refresh','overrideTime',  'explicitOn', 'explicitOff'])
+    details(['switch', 'brand', 'refresh', 'extraHour', 'revert', 'overrideEndTime'])
   }
 }
 
 //#region Methods called by parent app
 
+/**
+ * Stores the Genius Hub id of this room in state.
+ *
+ * @param geniusId  Id of the room zone within the Genius Hub.
+ */
 void setGeniusId(Integer geniusId) {
   state.geniusId = geniusId
 }
 
+/**
+ * Stores the configured log level in state.
+ *
+ * @param logLevel  Configured log level.
+ */
 void setLogLevel(Integer logLevel) {
   state.logLevel = logLevel
 }
 
+/**
+ * Returns the Genius Hub id of this room.
+ */
 Integer getGeniusId() {
   return state.geniusId
 }
 
+/**
+ * Returns the type of this device.
+ */
 String getGeniusType() {
   return 'switch'
 }
 
-void updateState(values) {
+/**
+ * Updates the state of the switch.
+ *
+ * @param values  Map of attribute names and values.
+ */
+void updateState(Map values) {
   logger "${device.label}: updateState: ${values}", 'trace'
 
-  sendEvent(name: 'switch', value: (values.switchState ? 'on' : 'off'), isStateChange: true)
-  // sendEvent(name: 'operatingMode', value: values.operatingMode, isStateChange: true)
+  if (values?.containsKey('operatingMode')) {
+    sendEvent(name: 'operatingMode', value: values.operatingMode)
+  }
+
+  if (values?.containsKey('switchState')) {
+    sendEvent(name: 'switch', value: (values.switchState ? 'on' : 'off'))
+  }
+  
+  if (values?.containsKey('overrideEndTime')) {
+    sendEvent(name: 'overrideEndTime', value: values.overrideEndTime, displayed: false)
+  }
+  
+  def mode = device.currentValue('operatingMode')
+  if (mode == 'override') {
+    sendEvent(name: 'overrideEndTimeDisplay', value: "Override ends ${values.overrideEndTime.format("HH:mm")}", displayed: false)
+  } else {
+    sendEvent(name: 'overrideEndTimeDisplay', value: '', displayed: false)
+  }
 }
 
 //#endregion Methods called by parent app
 
 //#region Actions
 
+/**
+ * Not used in this device handler.
+ * TODO: Can it be removed?
+ */
 def parse(String description) {
 }
 
-def refresh() {
+/**
+ * Extend the override by an hour.
+ */
+void extraHour() {
   logger "${device.label}: refresh", 'trace'
-  parent.refresh()
+
+  if (device.currentValue('operatingMode') == 'override') {
+    logger "Not implemented", 'error'
+    // parent.setOverridePeriod(state.geniusId, seconds)
+  }
 }
 
-def on() {
+/**
+ * Turn on the switch.
+ */
+void on() {
   logger "${device.label}: on", 'trace'
 
   sendEvent(name: 'switch', value: 'turningOn', isStateChange: true)
 
-  parent.pushSwitchState(state.geniusId, 1)
+  parent.pushSwitchState(state.geniusId, true)
 }
 
-def off() {
+/**
+ * Turn on the switch.
+ */
+void off() {
   logger "${device.label}: off", 'trace'
 
   sendEvent(name: 'switch', value: 'turningOff', isStateChange: true)
 
-  parent.pushSwitchState(state.geniusId, 0)
+  parent.pushSwitchState(state.geniusId, false)
+}
+
+/**
+ * Refresh all devices.
+ */
+void refresh() {
+  logger "${device.label}: refresh", 'trace'
+
+  parent.refresh()
+}
+
+/**
+ * Revert the operating mode to the default.
+ */
+void revert() {
+  logger "${device.label}: revert", 'trace'
+  
+  if (device.currentValue('operatingMode') == 'override') {
+    parent.revert(state.geniusId)
+  
+    sendEvent(name: 'switch', value: 'refreshing', displayed: false)
+    runIn(2, parent.refresh)
+  }
 }
 
 //#endregion Actions
 
 //#region Helpers
 
-void logger(msg, level = 'debug') {
+private void logger(msg, level = 'debug') {
   switch (level) {
     case 'error':
       if (state.logLevel >= 1) log.error msg
