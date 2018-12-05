@@ -30,7 +30,7 @@ definition(
   description: 'Integrate Zipato devices with SmartThings.',
   iconUrl: 'https://raw.githubusercontent.com/cumpstey/Cwm.SmartThings/master/smartapps/cwm/zipato-integration.src/assets/zipato-60.png',
   iconX2Url: 'https://raw.githubusercontent.com/cumpstey/Cwm.SmartThings/master/smartapps/cwm/zipato-integration.src/assets/zipato-120.png',
-  iconX3Url: 'https://raw.githubusercontent.com/cumpstey/Cwm.SmartThings/master/smartapps/cwm/zipato-integration.src/assets/zipato-340.png',
+  iconX3Url: 'https://raw.githubusercontent.com/cumpstey/Cwm.SmartThings/master/smartapps/cwm/zipato-integration.src/assets/zipato-500.png',
   singleInstance: true
 )
 
@@ -163,11 +163,7 @@ def manageDevicesPage() {
 def installed() {
   state.installed = true
 
-  // Refresh data every 5 minutes
-  runEvery5Minutes('refresh')
-
-  // Reauthenticate every 3 hours
-  runEvery3Hours('authenticate')
+  initialize()
 }
 
 def updated() {
@@ -179,13 +175,7 @@ def updated() {
     it.setLogLevel(state.logLevel)
   }
   
-  unsubscribe()
-
-  // Refresh data every 5 minutes
-  runEvery5Minutes('refresh')
-
-  // Reauthenticate every 3 hours
-  runEvery3Hours('authenticate')
+  initialize()
 }
 
 def uninstalled() {
@@ -325,7 +315,6 @@ private login() {
   }
 }
 
-// TODO: move the filtering into a wrapper or something
 private fetchDevices() {
   logger "${app.label}: fetchDevices", 'trace'
   
@@ -437,7 +426,17 @@ private pushSwitchStateResponseHandler(response, data) {
 
 //#region Helpers: private
 
-private updateChildren() {
+private void initialize() {
+  unschedule()
+
+  // Refresh data every 5 minutes
+  runEvery5Minutes('refresh')
+
+  // Reauthenticate every 3 hours
+  runEvery3Hours('authenticate')
+}
+
+private void updateChildren() {
   logger "${app.label}: updateChildren", 'trace'
 
   def children = getChildDevices()
@@ -458,7 +457,7 @@ private updateChildren() {
   }
 }
 
-private apiError(statusCode, message) {
+private void apiError(statusCode, message) {
   logger "Api error: ${statusCode}; ${message}", 'warn'
   
   state.currentError = "${message}"
@@ -467,13 +466,13 @@ private apiError(statusCode, message) {
   }
 }
 
-private sha1(String value) {
+private String sha1(String value) {
   def sha1 = java.security.MessageDigest.getInstance('SHA1')
   def digest  = sha1.digest(value.getBytes())
   return new BigInteger(1, digest).toString(16)
 }
 
-private logger(msg, level = 'debug') {
+private void logger(msg, level = 'debug') {
   switch (level) {
     case 'error':
       if (state.logLevel >= 1) log.error msg
