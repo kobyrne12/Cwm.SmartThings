@@ -1,0 +1,31 @@
+Known vids:
+
+- SmartThings-smartthings-Z-Wave_Thermostat
+- generic-arrival
+- generic-button
+- generic-carbon-monoxide
+- generic-contact (contact, battery)
+- generic-dimmer
+- generic-dimmer-power
+- generic-dimmer-power-energy
+- generic-doorbell
+- generic-humidity
+- generic-leak
+- generic-lock
+- generic-motion (motion, temp, battery)
+- generic-motion-3 (Motion, Acceleration, Battery)
+- generic-motion-4 (motion, Temp, Illuminance, battery)
+- generic-motion-5 (motion, temp, illuminance, tamper, battery)
+- generic-motion-6 (motion, temp, humidity, illuminance, battery)
+- generic-motion-7 (motion, temp, humidity, illuminance, tamper, battery)
+- generic-rgb-color-bulb
+- generic-rgbw-color-bulb
+- generic-shade
+- generic-siren
+- generic-siren
+- generic-smoke
+- generic-smoke-co
+- generic-switch
+- generic-switch-power
+- generic-switch-power-energy
+- generic-valve
