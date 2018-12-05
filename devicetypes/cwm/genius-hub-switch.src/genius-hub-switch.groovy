@@ -24,6 +24,8 @@ metadata {
     capability 'Switch'
     capability 'Health Check'
 
+    command 'enableGeniusMode'
+    command 'enableSwitchMode'
     command 'extraHour'
     command 'refresh'
     command 'revert'
@@ -34,6 +36,13 @@ metadata {
   }
 
   preferences {
+    section {
+      input name: 'switchMode', type: 'enum', title: 'Switch mode',
+        options: [
+          'genius' : 'Genius Hub switch (override for a period and revert)',
+          'switch' : 'Normal on/off switch (permanent override)'
+        ]
+    }
   }
 
   tiles(scale: 2) {
@@ -55,24 +64,41 @@ metadata {
     standardTile('brand', 'device', width: 1, height: 1, decoration: 'flat') {
       state 'default', label: '', icon: 'https://raw.githubusercontent.com/cumpstey/Cwm.SmartThings/master/smartapps/cwm/genius-hub-integration.src/assets/genius-hub-60.png'
     }
+    // standardTile('switchMode', 'device.switchMode', width: 1, height: 1, decoration: 'flat') {
+    //   state 'genius', label: 'Genius mode', action: 'enableSwitchMode'
+    //   state 'switch', label: 'Switch mode', action: 'enableGeniusMode'
+    // }
     standardTile('refresh', 'device', width: 1, height: 1, decoration: 'flat') {
       state 'default', label: '', action: 'refresh', icon: 'st.secondary.refresh'
     }
-    standardTile('extraHour', 'device', width: 1, height: 1, decoration: 'flat') {
-      state 'default', label: 'Extra hour', action: 'extraHour'
+    standardTile('extraHour', 'device.switchMode', width: 1, height: 1, decoration: 'flat') {
+      state 'genius', label: 'Extra hour', action: 'extraHour'
+      state 'switch', label: null
     }
-    standardTile('revert', 'device.operatingMode', width: 1, height: 1, decoration: 'flat') {
-      state 'default', label: ''
-      state 'override', label: '', action: 'revert', icon: 'https://raw.githubusercontent.com/cumpstey/Cwm.SmartThings/master/smartapps/cwm/genius-hub-integration.src/assets/genius-hub-revert-120.png'
+    standardTile('revert', 'device.revertable', width: 1, height: 1, decoration: 'flat') {
+      state 'default', label: null
+      state 'revertable', label: '', action: 'revert', icon: 'https://raw.githubusercontent.com/cumpstey/Cwm.SmartThings/master/smartapps/cwm/genius-hub-integration.src/assets/genius-hub-revert-120.png'
     }
     valueTile('overrideEndTime', 'device.overrideEndTimeDisplay', width: 4, height: 1) {
       state 'default', label: '${currentValue}'
     }
 
     main(['switch'])
-    details(['switch', 'brand', 'refresh', 'extraHour', 'revert', 'overrideEndTime'])
+    details(['switch', 'brand', 'switchMode', 'refresh', 'extraHour', 'revert', 'overrideEndTime'])
   }
 }
+
+//#region Event handlers
+
+/**
+ * Called when the settings are updated.
+ */
+def updated() {
+  sendEvent(name: 'switchMode', value: settings.switchMode, displayed: false)
+  updateDisplay()
+}
+
+//#endregion Event handlers
 
 //#region Methods called by parent app
 
@@ -125,15 +151,12 @@ void updateState(Map values) {
   }
   
   if (values?.containsKey('overrideEndTime')) {
+    // Date object can't be stored in state, so have to store timestamp instead.
+    // sendEvent(name: 'overrideEndTime', value: values.overrideEndTime.getTime(), displayed: false)
     sendEvent(name: 'overrideEndTime', value: values.overrideEndTime, displayed: false)
   }
-  
-  def mode = device.currentValue('operatingMode')
-  if (mode == 'override') {
-    sendEvent(name: 'overrideEndTimeDisplay', value: "Override ends ${values.overrideEndTime.format("HH:mm")}", displayed: false)
-  } else {
-    sendEvent(name: 'overrideEndTimeDisplay', value: '', displayed: false)
-  }
+
+  updateDisplay()  
 }
 
 //#endregion Methods called by parent app
@@ -148,14 +171,49 @@ def parse(String description) {
 }
 
 /**
+ * Set the device to function in Genius mode.
+ */
+void enableGeniusMode() {
+  logger "${device.label}: enableGeniusMode", 'trace'
+
+  sendEvent(name: 'switchMode', value: 'genius', isStateChange: true, displayed: false)
+
+  unschedule()
+
+  updateDisplay()
+}
+
+/**
+ * Set the device to function in switch mode.
+ */
+void enableSwitchMode() {
+  logger "${device.label}: enableSwitchMode", 'trace'
+
+  sendEvent(name: 'switchMode', value: 'switch', isStateChange: true, displayed: false)
+
+  parent.pushSwitchState(state.geniusId, device.currentValue('switch') == 'on')
+
+  runEvery1Hour(extendOverride)
+
+  updateDisplay()
+}
+
+/**
  * Extend the override by an hour.
  */
 void extraHour() {
-  logger "${device.label}: refresh", 'trace'
+  logger "${device.label}: extraHour", 'trace'
 
   if (device.currentValue('operatingMode') == 'override') {
-    logger "Not implemented", 'error'
-    // parent.setOverridePeriod(state.geniusId, seconds)
+    def overrideEndTime = device.currentValue('overrideEndTime')
+    def period = 3600
+    if (overrideEndTime) {
+      period = (int)(((overrideEndTime.getTime() + 3600 * 1000) - now()) / 1000)
+    }
+
+    parent.pushOverridePeriod(state.geniusId, period)
+    // logger 'Not implemented', 'error'
+    //parent.setOverridePeriod(state.geniusId, seconds)
   }
 }
 
@@ -207,6 +265,41 @@ void revert() {
 //#endregion Actions
 
 //#region Helpers
+
+/**
+ * Update the attributes used to determine how tiles are displayed,
+ * based on switch mode.
+ */
+private void updateDisplay() {
+  logger "${device.label}: updateDisplay", 'trace'
+
+  def switchMode = device.currentValue('switchMode')
+  def operatingMode = device.currentValue('operatingMode')
+
+  // Despite this being stored in state as a long (and it's definitely this
+  // as storing a Date in state doesn't work) it's coming back here as a Date.
+  def overrideEndTime = device.currentValue('overrideEndTime')
+
+  if (switchMode == 'genius' && operatingMode == 'override') {
+    sendEvent(name: 'revertable', value: 'revertable', displayed: false)
+    if (overrideEndTime) {
+      sendEvent(name: 'overrideEndTimeDisplay', value: "Override ends ${overrideEndTime.format("HH:mm")}", displayed: false)
+    }
+  } else {
+    sendEvent(name: 'revertable', value: '', displayed: false)
+    sendEvent(name: 'overrideEndTimeDisplay', value: '', displayed: false)
+  }
+}
+
+/**
+ * Set the override period to just over an hour.
+ * For use by switch mode, where this is called every hour.
+ */
+private void extendOverride() {
+  logger "${device.label}: extendOverride", 'trace'
+
+  parent.pushOverridePeriod(state.geniusId, 3660)
+}
 
 private void logger(msg, level = 'debug') {
   switch (level) {

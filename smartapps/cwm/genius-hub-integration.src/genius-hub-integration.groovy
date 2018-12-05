@@ -27,7 +27,7 @@ definition(
   description: 'Integrate Genius Hub devices with SmartThings.',
   iconUrl: 'https://raw.githubusercontent.com/cumpstey/Cwm.SmartThings/master/smartapps/cwm/genius-hub-integration.src/assets/genius-hub-60.png',
   iconX2Url: 'https://raw.githubusercontent.com/cumpstey/Cwm.SmartThings/master/smartapps/cwm/genius-hub-integration.src/assets/genius-hub-120.png',
-  iconX3Url: 'https://raw.githubusercontent.com/cumpstey/Cwm.SmartThings/master/smartapps/cwm/genius-hub-integration.src/assets/genius-hub-400.png',
+  iconX3Url: 'https://raw.githubusercontent.com/cumpstey/Cwm.SmartThings/master/smartapps/cwm/genius-hub-integration.src/assets/genius-hub-500.png',
   singleInstance: true
 )
 
@@ -387,7 +387,7 @@ private void pushMode(Integer geniusId, String mode) {
  * @param response  Response.
  * @param data  Additional data passed from the calling method.
  */
-private pushModeResponseHandler(response, data) { 
+private void pushModeResponseHandler(response, data) { 
   if (response.hasError()) {
     logger "API error received: ${response.getErrorMessage()}"
     return
@@ -405,68 +405,61 @@ private pushModeResponseHandler(response, data) {
   child.updateState(updates)
 }
 
-//#endregion: Genius Hub API: private functions
-
-//#region Genius Hub API: methods called by child devices
-
 /**
- * Make a request to the api to override the state of a switch.
+ * Make a request to the api to set the override period of a zone.
  *
- * @param geniusId  Id of the switch zone within the Genius Hub.
- * @param value  On/off state which the switch should be switched to.
+ * @param geniusId  Id of the zone within the Genius Hub.
+ * @param period  Period in seconds.
  */
-void pushSwitchState(Integer geniusId, Boolean value) {
-  logger "${app.label}: pushSwitchState(${geniusId}, ${value})", 'trace'
+private void pushOverridePeriod(Integer geniusId, Integer period) {
+  logger "${app.label}: pushOverridePeriod(${geniusId}, ${period})", 'trace'
 
   def requestParams = [
     uri: apiRootUrl(),
     path: "zone/${geniusId}",
     contentType: 'application/json',
     body: [
-      'fBoostSP': value,
-      'iBoostTimeRemaining': 3600,
-      'iMode': 16
+      'iBoostTimeRemaining': period
     ],
     headers: [
       'Authorization': getAuthorizationHeader()
     ],
   ]
 
-  asynchttp_v1.patch('pushSwitchStateResponseHandler', requestParams, [ 'geniusId': geniusId, 'switchState': value ] )
+  asynchttp_v1.patch('pushOverridePeriodResponseHandler', requestParams, [ 'geniusId': geniusId ] )
 }
 
 /**
- * Handles the response from the request to the api to override the state of a switch.
+ * Handles the response from the request to the api to set the override period of a zone.
  *
  * @param response  Response.
  * @param data  Additional data passed from the calling method.
  */
-private pushSwitchStateResponseHandler(response, data) { 
+private void pushOverridePeriodResponseHandler(response, data) { 
   if (response.hasError()) {
     logger "API error received: ${response.getErrorMessage()}"
     return
   }
 
-  logger "Push switch state: ${response.json}"
-  logger "Push switch state: ${response.json.data.iMode} ${response.json.data.iBoostTimeRemaining}"
+  logger "Push override period: ${response.json}"
 
-  def updates = [ switchState: data.switchState ]
+  def updates = [:]
 
-  def operatingMode = mapMode(response.json.data.iMode)
-  if (operatingMode) {
-    updates.operatingMode = operatingMode
-  }
-
-  def overrideEndTime = null
-  if (operatingMode == 'override' && response.json.data.iBoostTimeRemaining) {
-    use(groovy.time.TimeCategory) {
-        updates.overrideEndTime = new Date() + response.json.data.iBoostTimeRemaining.second 
-    }
+  // def overrideEndTime = null
+  if (response.json.data.iBoostTimeRemaining) {
+    updates.overrideEndTime = now() + response.json.data.iBoostTimeRemaining * 1000
+  //   use(groovy.time.TimeCategory) {
+  //     updates.overrideEndTime = new Date() + response.json.data.iBoostTimeRemaining.second 
+  //   }
   }
 
   def child = getChildDevice("GENIUS-${data.geniusId}")
   child.updateState(updates)
 }
+
+//#endregion: Genius Hub API: private functions
+
+//#region Genius Hub API: methods called by child devices
 
 /**
  * Make a request to the api to override the room temperature.
@@ -500,7 +493,7 @@ void pushRoomTemperature(Integer geniusId, Double value) {
  * @param response  Response.
  * @param data  Additional data passed from the calling method.
  */
-private pushRoomTemperatureResponseHandler(response, data) {
+private void pushRoomTemperatureResponseHandler(response, data) {
   if (response.hasError()) {
     logger "API error received: ${response.getErrorMessage()}"
     return
@@ -515,11 +508,74 @@ private pushRoomTemperatureResponseHandler(response, data) {
     updates.operatingMode = operatingMode
   }
 
-  def overrideEndTime = null
-  if (operatingMode == 'override' && response.json.data.iBoostTimeRemaining) {
-    use(groovy.time.TimeCategory) {
-        updates.overrideEndTime = new Date() + response.json.data.iBoostTimeRemaining.second 
-    }
+  // def overrideEndTime = null
+  if (response.json.data.iBoostTimeRemaining) {
+    // use(groovy.time.TimeCategory) {
+    //   updates.overrideEndTime = new Date() + response.json.data.iBoostTimeRemaining.second 
+    // }
+    updates.overrideEndTime = now() + response.json.data.iBoostTimeRemaining * 1000
+  }
+
+  def child = getChildDevice("GENIUS-${data.geniusId}")
+  child.updateState(updates)
+}
+
+/**
+ * Make a request to the api to override the state of a switch.
+ *
+ * @param geniusId  Id of the switch zone within the Genius Hub.
+ * @param value  On/off state which the switch should be switched to.
+ */
+void pushSwitchState(Integer geniusId, Boolean value) {
+  logger "${app.label}: pushSwitchState(${geniusId}, ${value})", 'trace'
+
+  def requestParams = [
+    uri: apiRootUrl(),
+    path: "zone/${geniusId}",
+    contentType: 'application/json',
+    body: [
+      'fBoostSP': value,
+      'iBoostTimeRemaining': 3600,
+      'iMode': 16
+    ],
+    headers: [
+      'Authorization': getAuthorizationHeader()
+    ],
+  ]
+
+  asynchttp_v1.patch('pushSwitchStateResponseHandler', requestParams, [ 'geniusId': geniusId, 'switchState': value ] )
+}
+
+/**
+ * Handles the response from the request to the api to override the state of a switch.
+ *
+ * @param response  Response.
+ * @param data  Additional data passed from the calling method.
+ */
+private void pushSwitchStateResponseHandler(response, data) { 
+  if (response.hasError()) {
+    logger "API error received: ${response.getErrorMessage()}"
+    return
+  }
+
+  logger "Push switch state: ${response.json}"
+
+  def updates = [ switchState: data.switchState ]
+
+  def operatingMode = mapMode(response.json.data.iMode)
+  if (operatingMode) {
+    updates.operatingMode = operatingMode
+  }
+
+  // def overrideEndTime = null
+  if (response.json.data.iBoostTimeRemaining) {
+    // use(groovy.time.TimeCategory) {
+    //   updates.overrideEndTime = new Date() + response.json.data.iBoostTimeRemaining.second 
+    // log.debug "overrideEndTime: ${updates.overrideEndTime}"
+    // log.debug "now: ${now()}"
+    // log.debug "${updates.overrideEndTime.getTime()} ${now() + response.json.data.iBoostTimeRemaining * 1000}"
+    // }
+    updates.overrideEndTime = now() + response.json.data.iBoostTimeRemaining * 1000
   }
 
   def child = getChildDevice("GENIUS-${data.geniusId}")
@@ -586,12 +642,12 @@ private Map mapRoom(device) {
   def illuminance = children.findAll { it.value.type == 'sensor' }.collect{ it.value.illuminance }.max { it }
 
   def operatingMode = mapMode(device.iMode)
-  def overrideEndTime = null
-  if (operatingMode == 'override') {
-    use(groovy.time.TimeCategory) {
-        overrideEndTime = new Date() + device.iBoostTimeRemaining.second 
-    }
-  }
+  // def overrideEndTime = null
+  // use(groovy.time.TimeCategory) {
+  //   overrideEndTime = new Date() + device.iBoostTimeRemaining.second 
+  // }
+  def overrideEndTime = now() + device.iBoostTimeRemaining * 1000
+
 
   return [
     id: device.iID,
@@ -609,12 +665,12 @@ private Map mapRoom(device) {
 
 private Map mapSwitch(device) {
   def operatingMode = mapMode(device.iMode)
-  def overrideEndTime = null
-  if (operatingMode == 'override') {
-    use(groovy.time.TimeCategory) {
-        overrideEndTime = new Date() + device.iBoostTimeRemaining.second 
-    }
-  }
+  // def overrideEndTime = null
+  // use(groovy.time.TimeCategory) {
+  //   overrideEndTime = new Date() + device.iBoostTimeRemaining.second 
+  // }
+  def overrideEndTime = now() + device.iBoostTimeRemaining * 1000
+
 
   return [
     id: device.iID,

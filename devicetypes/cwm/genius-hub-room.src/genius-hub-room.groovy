@@ -170,7 +170,7 @@ void updateState(Map values) {
   
   def mode = device.currentValue('operatingMode')
   if (mode == 'override') {
-    sendEvent(name: 'overrideEndTimeDisplay', value: "Override ends ${values.overrideEndTime.format("HH:mm")}", displayed: false)
+    sendEvent(name: 'overrideEndTimeDisplay', value: "Override ends ${new Date(values.overrideEndTime).format("HH:mm")}", displayed: false)
   } else {
     sendEvent(name: 'overrideEndTimeDisplay', value: '', displayed: false)
     sendEvent(name: 'targetTemperature', value: device.currentValue('temperature'), unit: "°${temperatureScale}", displayed: false)
