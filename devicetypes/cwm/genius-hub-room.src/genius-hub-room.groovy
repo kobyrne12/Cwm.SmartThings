@@ -74,17 +74,20 @@ metadata {
     standardTile('refresh', 'device', width: 1, height: 1, decoration: 'flat') {
       state 'default', label: '', action: 'refresh', icon: 'st.secondary.refresh'
     }
-    standardTile('extraHour', 'device', width: 1, height: 1, decoration: 'flat') {
-      state 'default', label: 'Extra hour', action: 'extraHour'
+    standardTile('extraHour', 'device.canModifyOverride', width: 1, height: 1, decoration: 'flat') {
+      state 'default', label: null
+      state 'yes', label: 'Extra hour', action: 'extraHour'
     }
-    standardTile('revert', 'device', width: 1, height: 1, decoration: 'flat') {
-      state 'default', label: '', action: 'revert', icon: 'https://raw.githubusercontent.com/cumpstey/Cwm.SmartThings/master/smartapps/cwm/genius-hub-integration.src/assets/genius-hub-revert-120.png'
+    standardTile('revert', 'device.canModifyOverride', width: 1, height: 1, decoration: 'flat') {
+      state 'default', label: null
+      state 'yes', label: '', action: 'revert', icon: 'https://raw.githubusercontent.com/cumpstey/Cwm.SmartThings/master/smartapps/cwm/genius-hub-integration.src/assets/genius-hub-revert-120.png'
     }
-    // Suspected SmartThings bug:
+    // Suspected SmartThings bugs:
     // 1. A battery value of 49 is coloured green. If an additional checkpoint of `[value: 48, color: '#f1d801']` is added, it's then coloured yellow.
     //    It's really not clear what's going on here. However, it _is_ clear from the way temperatures are treated wrt background colours that it's not
     //    the simple value comparison that the documentation suggests, and that debugging is basically impossible.
-    // 2. The yellow colour is pretty greenish - nothing like the hex colour. It looks like it may be a mixture of the background colour of the multiattribute tile and the value tile.
+    // 2. The yellow colour is pretty greenish - nothing like the hex colour. It looks like it may be a mixture of the background colour of the
+    //    multiattribute tile and the value tile.
     valueTile('battery', 'device.battery', inactiveLabel: false, width: 1, height: 1) {
       state 'battery', label: '${currentValue}% battery',
       backgroundColors:[
@@ -168,13 +171,7 @@ void updateState(Map values) {
     sendEvent(name: 'overrideEndTime', value: values.overrideEndTime, displayed: false)
   }
   
-  def mode = device.currentValue('operatingMode')
-  if (mode == 'override') {
-    sendEvent(name: 'overrideEndTimeDisplay', value: "Override ends ${new Date(values.overrideEndTime).format("HH:mm")}", displayed: false)
-  } else {
-    sendEvent(name: 'overrideEndTimeDisplay', value: '', displayed: false)
-    sendEvent(name: 'targetTemperature', value: device.currentValue('temperature'), unit: "°${temperatureScale}", displayed: false)
-  }
+  updateDisplay()
 }
 
 //#endregion Methods called by parent app
@@ -183,7 +180,6 @@ void updateState(Map values) {
 
 /**
  * Not used in this device handler.
- * TODO: Can it be removed?
  */
 def parse(String description) {
 }
@@ -191,19 +187,24 @@ def parse(String description) {
 /**
  * Extend the override by an hour.
  */
-void extraHour() {
+def extraHour() {
   logger "${device.label}: refresh", 'trace'
 
   if (device.currentValue('operatingMode') == 'override') {
-    logger "Not implemented", 'error'
-    // parent.setOverridePeriod(state.geniusId, seconds)
+    def overrideEndTime = device.currentValue('overrideEndTime')
+    def period = 3600
+    if (overrideEndTime) {
+      period = (int)(((overrideEndTime.getTime() + 3600 * 1000) - now()) / 1000)
+    }
+
+    parent.pushOverridePeriod(state.geniusId, period)
   }
 }
 
 /**
  * Refresh all devices.
  */
-void refresh() {
+def refresh() {
   logger "${device.label}: refresh", 'trace'
 
   parent.refresh()
@@ -212,7 +213,7 @@ void refresh() {
 /**
  * Revert the operating mode to the default.
  */
-void revert() {
+def revert() {
   logger "${device.label}: revert", 'trace'
   
   if (device.currentValue('operatingMode') == 'override') {
@@ -225,18 +226,43 @@ void revert() {
  *
  * @param value  Target temperature, in either Celsius or Fahrenheit as defined by the SmartThings hub settings.
  */
-void setTargetTemperature(Double value) {
+def setTargetTemperature(Double value) {
   logger "${device.label}: setTargetTemperature: ${value}", 'trace'
 
   sendEvent(name: 'targetTemperature', value: value, unit: "°${temperatureScale}")  
 
   def valueInCelsius = convertHubScaleToCelsius(value)
-  parent.pushRoomTemperature(state.geniusId, valueInCelsius)
+  parent.pushRoomTemperatureAsync(state.geniusId, valueInCelsius)
 }
 
 //#endregion Actions
 
 //#region Helpers
+
+/**
+ * Update the attributes used to determine how tiles are displayed,
+ * based on switch mode.
+ */
+private void updateDisplay() {
+  logger "${device.label}: updateDisplay", 'trace'
+
+  def operatingMode = device.currentValue('operatingMode')
+
+  // Despite this being stored in state as a long (and it's definitely this
+  // as storing a Date in state doesn't work) it's coming back here as a Date.
+  def overrideEndTime = device.currentValue('overrideEndTime')
+
+  if (operatingMode == 'override') {
+    sendEvent(name: 'canModifyOverride', value: 'yes', displayed: false)
+    if (overrideEndTime) {
+      sendEvent(name: 'overrideEndTimeDisplay', value: "Override ends ${overrideEndTime.format('HH:mm')}", displayed: false)
+    }
+  } else {
+    sendEvent(name: 'canModifyOverride', value: '', displayed: false)
+    sendEvent(name: 'overrideEndTimeDisplay', value: '', displayed: false)
+    sendEvent(name: 'targetTemperature', value: device.currentValue('temperature'), unit: "°${temperatureScale}", displayed: false)
+  }
+}
 
 /**
  * Converts a Celsius temperature value to the scale defined in the SmartThings hub settings.
@@ -258,25 +284,28 @@ private Double convertHubScaleToCelsius(Double valueInHubScale) {
   return value.round(1)
 }
 
-private void logger(msg, level = 'debug') {
+/**
+ * Log message if logging is configured for the specified level.
+ */
+private void logger(message, String level = 'debug') {
   switch (level) {
     case 'error':
-      if (state.logLevel >= 1) log.error msg
+      if (state.logLevel >= 1) log.error message
       break
     case 'warn':
-      if (state.logLevel >= 2) log.warn msg
+      if (state.logLevel >= 2) log.warn message
       break
     case 'info':
-      if (state.logLevel >= 3) log.info msg
+      if (state.logLevel >= 3) log.info message
       break
     case 'debug':
-      if (state.logLevel >= 4) log.debug msg
+      if (state.logLevel >= 4) log.debug message
       break
     case 'trace':
-      if (state.logLevel >= 5) log.trace msg
+      if (state.logLevel >= 5) log.trace message
       break
     default:
-      log.debug msg
+      log.debug message
       break
   }
 }

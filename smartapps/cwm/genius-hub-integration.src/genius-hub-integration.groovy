@@ -150,7 +150,7 @@ def manageDevicesPage() {
 def installed() {
   state.installed = true
 
-  // Refresh data every 5 minutes
+  // Refresh data for all devices every 5 minutes
   runEvery5Minutes(refresh)
 }
 
@@ -165,13 +165,14 @@ def updated() {
 
   updateChildDevices()
 
+  def children = getChildDevices()
   children.each {
     it.setLogLevel(state.logLevel)
   }
 
   unsubscribe()
 
-  // Refresh data every 5 minutes
+  // Refresh data for all devices every 5 minutes
   runEvery5Minutes(refresh)
 }
 
@@ -262,7 +263,7 @@ private void removeAllChildDevices(delete) {
 
 //#endregion Service manager functions
 
-//#region Genius Hub API: private functions
+//#region Synchronous API requests
 
 /**
  * Make a request to the authentication test api endpoint to verify the credentials.
@@ -301,7 +302,7 @@ private void verifyAuthentication() {
 /**
  * Fetch information about all zones from the api, and store it in state.
  */
-private void fetchZones(Closure callback = null) {
+private void fetchZones() {
   logger "${app.label}: fetchZones", 'trace'
  
   def requestParams = [
@@ -338,10 +339,6 @@ private void fetchZones(Closure callback = null) {
         
         logger "Found: ${devices.size()} devices"
         state.devices = devices
-
-        if (callback) {
-          callback()
-        }
       }
       else {
         apiError(response.status, "Unexpected status code: ${response.status}")
@@ -352,14 +349,36 @@ private void fetchZones(Closure callback = null) {
   }
 }
 
+//#endregion Synchronous API requests
+
+//#region Asynchronous API requests
+
+/**
+ * Refresh the data on all devices.
+ */
+private void fetchZonesAsync(String handler) {
+  logger "${app.label}: fetchZonesAsync", 'trace'
+
+  def requestParams = [
+    uri: apiRootUrl(),
+    path: "zones",
+    contentType: 'application/json',
+    headers: [
+      'Authorization': getAuthorizationHeader()
+    ],
+  ]
+
+  asynchttp_v1.get(handler, requestParams)
+}
+
 /**
  * Make a request to the api to set the mode of a zone.
  *
  * @param geniusId  Id of the zone within the Genius Hub.
  * @param mode  Mode which the zone should be switched to.
  */
-private void pushMode(Integer geniusId, String mode) {
-  logger "${app.label}: pushMode(${geniusId}, ${mode})", 'trace'
+private void pushModeAsync(Integer geniusId, String mode) {
+  logger "${app.label}: pushModeAsync(${geniusId}, ${mode})", 'trace'
 
   def geniusMode = mapMode(mode)
   if (!geniusMode) {
@@ -378,31 +397,7 @@ private void pushMode(Integer geniusId, String mode) {
     ],
   ]
 
-  asynchttp_v1.patch('pushModeResponseHandler', requestParams, [ 'geniusId': geniusId ] )
-}
-
-/**
- * Handles the response from the request to the api to set the mode of a zone.
- *
- * @param response  Response.
- * @param data  Additional data passed from the calling method.
- */
-private void pushModeResponseHandler(response, data) { 
-  if (response.hasError()) {
-    logger "API error received: ${response.getErrorMessage()}"
-    return
-  }
-
-  logger "Push mode: ${response.json}"
-
-  def updates = [:]
-  def operatingMode = mapMode(response.json.data.iMode)
-  if (operatingMode) {
-    updates.operatingMode = operatingMode
-  }
-
-  def child = getChildDevice("GENIUS-${data.geniusId}")
-  child.updateState(updates)
+  asynchttp_v1.patch('updateZoneResponseHandler', requestParams, [ 'geniusId': geniusId ] )
 }
 
 /**
@@ -411,8 +406,8 @@ private void pushModeResponseHandler(response, data) {
  * @param geniusId  Id of the zone within the Genius Hub.
  * @param period  Period in seconds.
  */
-private void pushOverridePeriod(Integer geniusId, Integer period) {
-  logger "${app.label}: pushOverridePeriod(${geniusId}, ${period})", 'trace'
+private void pushOverridePeriodAsync(Integer geniusId, Integer period) {
+  logger "${app.label}: pushOverridePeriodAsync(${geniusId}, ${period})", 'trace'
 
   def requestParams = [
     uri: apiRootUrl(),
@@ -426,40 +421,8 @@ private void pushOverridePeriod(Integer geniusId, Integer period) {
     ],
   ]
 
-  asynchttp_v1.patch('pushOverridePeriodResponseHandler', requestParams, [ 'geniusId': geniusId ] )
+  asynchttp_v1.patch('updateZoneResponseHandler', requestParams, [ 'geniusId': geniusId ] )
 }
-
-/**
- * Handles the response from the request to the api to set the override period of a zone.
- *
- * @param response  Response.
- * @param data  Additional data passed from the calling method.
- */
-private void pushOverridePeriodResponseHandler(response, data) { 
-  if (response.hasError()) {
-    logger "API error received: ${response.getErrorMessage()}"
-    return
-  }
-
-  logger "Push override period: ${response.json}"
-
-  def updates = [:]
-
-  // def overrideEndTime = null
-  if (response.json.data.iBoostTimeRemaining) {
-    updates.overrideEndTime = now() + response.json.data.iBoostTimeRemaining * 1000
-  //   use(groovy.time.TimeCategory) {
-  //     updates.overrideEndTime = new Date() + response.json.data.iBoostTimeRemaining.second 
-  //   }
-  }
-
-  def child = getChildDevice("GENIUS-${data.geniusId}")
-  child.updateState(updates)
-}
-
-//#endregion: Genius Hub API: private functions
-
-//#region Genius Hub API: methods called by child devices
 
 /**
  * Make a request to the api to override the room temperature.
@@ -467,8 +430,8 @@ private void pushOverridePeriodResponseHandler(response, data) {
  * @param geniusId  Id of the room zone within the Genius Hub.
  * @param value  Temperature in Celcius.
  */
-void pushRoomTemperature(Integer geniusId, Double value) {
-  logger "${app.label}: pushRoomTemperature(${geniusId}, ${value})", 'trace'
+private void pushRoomTemperatureAsync(Integer geniusId, Double value) {
+  logger "${app.label}: pushRoomTemperatureAsync(${geniusId}, ${value})", 'trace'
 
   def requestParams = [
     uri: apiRootUrl(),
@@ -484,40 +447,7 @@ void pushRoomTemperature(Integer geniusId, Double value) {
     ],
   ]
 
-  asynchttp_v1.patch('pushRoomTemperatureResponseHandler', requestParams, [geniusId: geniusId] )
-}
-
-/**
- * Handles the response from the request to the api to override the room temperature.
- *
- * @param response  Response.
- * @param data  Additional data passed from the calling method.
- */
-private void pushRoomTemperatureResponseHandler(response, data) {
-  if (response.hasError()) {
-    logger "API error received: ${response.getErrorMessage()}"
-    return
-  }
-
-  logger "Push room temperature: ${response}"
-
-  def updates = [:]
-
-  def operatingMode = mapMode(response.json.data.iMode)
-  if (operatingMode) {
-    updates.operatingMode = operatingMode
-  }
-
-  // def overrideEndTime = null
-  if (response.json.data.iBoostTimeRemaining) {
-    // use(groovy.time.TimeCategory) {
-    //   updates.overrideEndTime = new Date() + response.json.data.iBoostTimeRemaining.second 
-    // }
-    updates.overrideEndTime = now() + response.json.data.iBoostTimeRemaining * 1000
-  }
-
-  def child = getChildDevice("GENIUS-${data.geniusId}")
-  child.updateState(updates)
+  asynchttp_v1.patch('updateZoneResponseHandler', requestParams, [geniusId: geniusId] )
 }
 
 /**
@@ -526,8 +456,8 @@ private void pushRoomTemperatureResponseHandler(response, data) {
  * @param geniusId  Id of the switch zone within the Genius Hub.
  * @param value  On/off state which the switch should be switched to.
  */
-void pushSwitchState(Integer geniusId, Boolean value) {
-  logger "${app.label}: pushSwitchState(${geniusId}, ${value})", 'trace'
+private void pushSwitchStateAsync(Integer geniusId, Boolean value) {
+  logger "${app.label}: pushSwitchStateAsync(${geniusId}, ${value})", 'trace'
 
   def requestParams = [
     uri: apiRootUrl(),
@@ -543,48 +473,163 @@ void pushSwitchState(Integer geniusId, Boolean value) {
     ],
   ]
 
-  asynchttp_v1.patch('pushSwitchStateResponseHandler', requestParams, [ 'geniusId': geniusId, 'switchState': value ] )
+  asynchttp_v1.patch('updateZoneResponseHandler', requestParams, [ 'geniusId': geniusId, updates: ['switchState': value ]] )
+}
+
+//#endregion Asynchronous API requests
+
+//#region Methods available to child devices
+
+/**
+ * Set the mode of a zone.
+ *
+ * @param geniusId  Id of the zone within the Genius Hub.
+ * @param mode  Mode which the zone should be switched to.
+ */
+void pushMode(Integer geniusId, String mode) {
+  pushModeAsync(geniusId, mode)
 }
 
 /**
- * Handles the response from the request to the api to override the state of a switch.
+ * Set the override period of a zone.
+ *
+ * @param geniusId  Id of the zone within the Genius Hub.
+ * @param period  Period in seconds.
+ */
+void pushOverridePeriod(Integer geniusId, Integer period) {
+  pushOverridePeriodAsync(geniusId, period)
+}
+
+/**
+ * Override the room temperature.
+ *
+ * @param geniusId  Id of the room zone within the Genius Hub.
+ * @param value  Temperature in Celcius.
+ */
+void pushRoomTemperature(Integer geniusId, Double value) {
+  pushRoomTemperatureAsync(geniusId, value)
+}
+
+/**
+ * Set the state of a switch.
+ *
+ * @param geniusId  Id of the switch zone within the Genius Hub.
+ * @param value  On/off state which the switch should be switched to.
+ */
+void pushSwitchState(Integer geniusId, Boolean value) {
+  pushSwitchStateAsync(geniusId, value)
+}
+
+/**
+ * Refresh the data on all devices.
+ */
+void refresh() {
+  logger "${app.label}: refresh", 'trace'
+
+  fetchZonesAsync('updateAllZonesResponseHandler')
+}
+
+/**
+ * Revert an overridden device to its base state.
+ *
+ * @param geniusId  Id of the zone within the Genius Hub.
+ */
+void revert(Integer geniusId) {
+  logger "${app.label}: refresh", 'trace'
+
+  // Ensure we have the correct default operating mode.
+  // There's no simple 'revert to base mode' api request as far as I can see.
+  fetchZones()
+
+  def mode = state.devices["id_${geniusId}"].defaultOperatingMode
+  pushModeAsync(geniusId, mode)
+}
+
+//#endregion Methods available to child devices
+
+//#region API response handlers
+
+/**
+ * Handles an api response containing data about a single zone.
  *
  * @param response  Response.
  * @param data  Additional data passed from the calling method.
  */
-private void pushSwitchStateResponseHandler(response, data) { 
+private void updateZoneResponseHandler(response, data) { 
   if (response.hasError()) {
     logger "API error received: ${response.getErrorMessage()}"
     return
   }
 
-  logger "Push switch state: ${response.json}"
-
-  def updates = [ switchState: data.switchState ]
-
-  def operatingMode = mapMode(response.json.data.iMode)
-  if (operatingMode) {
-    updates.operatingMode = operatingMode
-  }
-
-  // def overrideEndTime = null
-  if (response.json.data.iBoostTimeRemaining) {
-    // use(groovy.time.TimeCategory) {
-    //   updates.overrideEndTime = new Date() + response.json.data.iBoostTimeRemaining.second 
-    // log.debug "overrideEndTime: ${updates.overrideEndTime}"
-    // log.debug "now: ${now()}"
-    // log.debug "${updates.overrideEndTime.getTime()} ${now() + response.json.data.iBoostTimeRemaining * 1000}"
-    // }
-    updates.overrideEndTime = now() + response.json.data.iBoostTimeRemaining * 1000
-  }
+  logger "updateZoneResponseHandler: ${response.json}"
 
   def child = getChildDevice("GENIUS-${data.geniusId}")
-  child.updateState(updates)
+  if (!child) {
+    logger "Child device for ${data.geniusId} not found"
+  }
+
+  def geniusType = child.getGeniusType()
+  def updates = data.updates as Map ?: [:]
+
+  switch (geniusType) {
+    case 'house':
+      logger 'TODO: Implement house', 'warn'
+      break;
+    case 'room':
+      updates << mapRoomUpdates(response.json.data)
+      child.updateState(updates)
+      break;
+    case 'switch':
+      updates << mapSwitchUpdates(response.json.data)
+      child.updateState(updates)
+      break;
+  }
 }
 
-//#endregion Genius Hub API: available to child devices
+/**
+ * Handles an api response containing data about all zones.
+ *
+ * @param response  Response.
+ * @param data  Additional data passed from the calling method.
+ */
+private void updateAllZonesResponseHandler(response, data) { 
+  if (response.hasError()) {
+    logger "API error received: ${response.getErrorMessage()}"
+    return
+  }
 
-//#region Helpers: private
+  logger "updateAllZonesResponseHandler: ${response.json}"
+
+  def children = getChildDevices()
+  children.each { child ->
+    def geniusId = child.getGeniusId()
+    def geniusType = child.getGeniusType()
+
+    def zone = response.json.data.find({ it.iID == geniusId })
+    if (!zone) {
+      logger "Not found zone for ${geniusId}", 'warn'
+      return
+    }
+
+    switch (geniusType) {
+      case 'house':
+        logger 'TODO: Implement house', 'warn'
+        break;
+      case 'room':
+        def updates = mapRoomUpdates(zone)
+        child.updateState(updates)
+        break;
+      case 'switch':
+        def updates = mapSwitchUpdates(zone)
+        child.updateState(updates)
+        break;
+    }
+  }
+}
+
+//#endregion
+
+//#region Helpers
 
 private void apiError(statusCode, message) {
   logger "Api error: ${statusCode}; ${message}", 'warn'
@@ -609,78 +654,101 @@ private String sha256(String value) {
   return new BigInteger(1, bytesOfEncryptedPassword).toString(16);
 }  
 
-private Map mapHouse(device) {
+/**
+ * Extract basic data about a house zone from the data returned by the API.
+ */
+private Map mapHouse(data) {
   return [
-    id: device.iID,
+    id: data.iID,
     type: 'house',
-    name: device.strName,
+    name: data.strName,
   ]
 }
 
-private Map mapRoom(device) {
-  def children = [:]
-  device.nodes.each { 
-    if (it.childValues.HEATING_1) {
-      children["radiator_${it.addr}"] = [
-        address: it.addr,
-        type: 'radiator',
-        battery: it.childValues.Battery.val,
-      ]
-    } else {
-      children["sensor_${it.addr}"] = [
-        address: it.addr,
-        type: 'sensor',
-        battery: it.childValues.Battery.val,
-        illuminance: it.childValues.LUMINANCE.val,
-        temperature: it.childValues.TEMPERATURE.val,
-      ]
-    }
+/**
+ * Extract basic data about a room zone from the data returned by the API.
+ */
+private Map mapRoom(data) {
+  return [
+    id: data.iID,
+    type: 'room',
+    name: data.strName,
+    defaultOperatingMode: mapMode(data.iBaseMode),
+  ]
+}
+
+/**
+ * Extract basic data about a switch zone from the data returned by the API.
+ */
+private Map mapSwitch(data) {
+  return [
+    id: data.iID,
+    type: 'switch',
+    name: data.strName,
+    defaultOperatingMode: mapMode(data.iBaseMode),
+  ]
+}
+
+/**
+ * Extract the current state of a room zone from the data returned by the API, to update the device.
+ */
+private Map mapRoomUpdates(data) {
+  def updates = [:]
+
+  if (data.containsKey('nodes')) {
+    // Use minimum battery level from all child devices (motion sensor and radiator valves) as room battery level.
+    updates.battery = data.nodes
+                          .collect{ it.childValues.Battery.val }
+                          .min { it }
+
+    // Use maximum luminance level from all child motion sensor devices as room luminance level.
+    updates.illuminance = data.nodes
+                              .findAll { it.childValues.containsKey('Motion') }
+                              .collect{ it.childValues.LUMINANCE.val }
+                              .max { it }
   }
 
-  def minBattery = children.collect{ it.value.battery }.min { it }
+  if (data.containsKey('iMode')) {
+    updates.operatingMode = mapMode(data.iMode)
+  }
+  
+  if (data.containsKey('iBoostTimeRemaining')) {
+    updates.overrideEndTime = now() + data.iBoostTimeRemaining * 1000
+  }
 
-  def illuminance = children.findAll { it.value.type == 'sensor' }.collect{ it.value.illuminance }.max { it }
+  if (data.containsKey('fPV')) {
+    updates.sensorTemperature = data.fPV
+  }
 
-  def operatingMode = mapMode(device.iMode)
-  // def overrideEndTime = null
-  // use(groovy.time.TimeCategory) {
-  //   overrideEndTime = new Date() + device.iBoostTimeRemaining.second 
-  // }
-  def overrideEndTime = now() + device.iBoostTimeRemaining * 1000
-
-
-  return [
-    id: device.iID,
-    type: 'room',
-    name: device.strName,
-    operatingMode: operatingMode,
-    overrideEndTime: overrideEndTime,
-    defaultOperatingMode: mapMode(device.iBaseMode),
-    sensorTemperature: device.fPV,
-    minBattery: minBattery,
-    illuminance: illuminance,
-    childNodes: children,
-  ]
+  return updates
 }
 
-private Map mapSwitch(device) {
-  def operatingMode = mapMode(device.iMode)
-  // def overrideEndTime = null
-  // use(groovy.time.TimeCategory) {
-  //   overrideEndTime = new Date() + device.iBoostTimeRemaining.second 
-  // }
-  def overrideEndTime = now() + device.iBoostTimeRemaining * 1000
+/**
+ * Extract the current state of a switch zone from the data returned by the API, to update the device.
+ */
+private Map mapSwitchUpdates(data) {
+  def updates = [:]
 
+  if (data.containsKey('iMode')) {
+    updates.operatingMode = mapMode(data.iMode)
+  }
+  
+  if (data.containsKey('iBoostTimeRemaining')) {
+    updates.overrideEndTime = now() + data.iBoostTimeRemaining * 1000
+  }
 
-  return [
-    id: device.iID,
-    type: 'switch',
-    name: device.strName,
-    operatingMode: operatingMode,
-    overrideEndTime: overrideEndTime,
-    defaultOperatingMode: mapMode(device.iBaseMode),
-    switchState: device.fSP.asBoolean(),
-  ]
+  // This is the override switch state, which only applies in override mode.
+  // But we can't apply only in override mode, as the mode isn't always present in the response.
+  if (data.containsKey('fBoostSP')) {
+    updates.switchState = data.fBoostSP.asBoolean()
+  }
+  
+  // This is the actual switch state, which applies whenever it's present.
+  if (data.containsKey('fSP')) {
+    updates.switchState = data.fSP.asBoolean()
+  }
+
+  return updates
 }
 
 private mapMode(mode) {
@@ -715,7 +783,10 @@ private String getDeviceHandlerFor(String deviceType) {
   }
 }
 
-private void logger(String message, String level = 'debug') {
+/**
+ * Log message if logging is configured for the specified level.
+ */
+private void logger(message, String level = 'debug') {
   switch (level) {
     case 'error':
       if (state.logLevel >= 1) log.error message
@@ -738,64 +809,4 @@ private void logger(String message, String level = 'debug') {
   }
 }
 
-//#endregion Helpers: private
-
-//#region Helpers: available to child devices
-
-/**
- * Refresh the data on all devices.
- */
-void refresh() {
-  logger "${app.label}: refresh", 'trace'
-
-  fetchZones()
-  
-  def children = getChildDevices()
-  children.each {
-    def geniusId = it.getGeniusId()
-    def geniusType = it.getGeniusType()
-    def geniusDevice = state.devices["id_${geniusId}"]
-    if (!geniusDevice) {
-      logger "Child ${geniusType} ${geniusId} doesn't correspond to a zone on the Genius Hub", "warn"
-      return
-    }
-
-    switch (geniusType) {
-      case 'house':
-        logger 'Not refreshing house - TODO'
-        break;
-      case 'room':
-        it.updateState([
-          operatingMode: geniusDevice.operatingMode,
-          overrideEndTime: geniusDevice.overrideEndTime,
-          sensorTemperature: geniusDevice.sensorTemperature,
-          minBattery: geniusDevice.minBattery,
-          illuminance: geniusDevice.illuminance,
-        ])
-        break;
-      case 'switch':
-        it.updateState([
-          operatingMode: geniusDevice.operatingMode,
-          overrideEndTime: geniusDevice.overrideEndTime,
-          switchState: geniusDevice.switchState,
-        ])
-        break;
-    }
-  }
-}
-
-/**
- * Revert an overridden device to its base state.
- *
- * @param geniusId  Id of the zone within the Genius Hub.
- */
-void revert(Integer geniusId) {
-  logger "${app.label}: refresh", 'trace'
-
-  fetchZones({
-    def mode = state.devices["id_${geniusId}"].defaultOperatingMode
-    pushMode(geniusId, mode)
-  })
-}
-
-//#endregion Helpers: available to child devices
+//#endregion Helpers

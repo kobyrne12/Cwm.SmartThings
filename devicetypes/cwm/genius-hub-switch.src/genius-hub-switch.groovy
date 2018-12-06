@@ -64,20 +64,16 @@ metadata {
     standardTile('brand', 'device', width: 1, height: 1, decoration: 'flat') {
       state 'default', label: '', icon: 'https://raw.githubusercontent.com/cumpstey/Cwm.SmartThings/master/smartapps/cwm/genius-hub-integration.src/assets/genius-hub-60.png'
     }
-    // standardTile('switchMode', 'device.switchMode', width: 1, height: 1, decoration: 'flat') {
-    //   state 'genius', label: 'Genius mode', action: 'enableSwitchMode'
-    //   state 'switch', label: 'Switch mode', action: 'enableGeniusMode'
-    // }
     standardTile('refresh', 'device', width: 1, height: 1, decoration: 'flat') {
       state 'default', label: '', action: 'refresh', icon: 'st.secondary.refresh'
     }
-    standardTile('extraHour', 'device.switchMode', width: 1, height: 1, decoration: 'flat') {
-      state 'genius', label: 'Extra hour', action: 'extraHour'
-      state 'switch', label: null
-    }
-    standardTile('revert', 'device.revertable', width: 1, height: 1, decoration: 'flat') {
+    standardTile('extraHour', 'device.canModifyOverride', width: 1, height: 1, decoration: 'flat') {
       state 'default', label: null
-      state 'revertable', label: '', action: 'revert', icon: 'https://raw.githubusercontent.com/cumpstey/Cwm.SmartThings/master/smartapps/cwm/genius-hub-integration.src/assets/genius-hub-revert-120.png'
+      state 'yes', label: 'Extra hour', action: 'extraHour'
+    }
+    standardTile('revert', 'device.canModifyOverride', width: 1, height: 1, decoration: 'flat') {
+      state 'default', label: null
+      state 'yes', label: '', action: 'revert', icon: 'https://raw.githubusercontent.com/cumpstey/Cwm.SmartThings/master/smartapps/cwm/genius-hub-integration.src/assets/genius-hub-revert-120.png'
     }
     valueTile('overrideEndTime', 'device.overrideEndTimeDisplay', width: 4, height: 1) {
       state 'default', label: '${currentValue}'
@@ -94,7 +90,15 @@ metadata {
  * Called when the settings are updated.
  */
 def updated() {
-  sendEvent(name: 'switchMode', value: settings.switchMode, displayed: false)
+  sendEvent(name: 'switchMode', value: settings.switchMode ?: 'genius', displayed: false)
+
+  if (settings.switchMode == 'switch') {
+    parent.pushSwitchState(state.geniusId, device.currentValue('switch') == 'on')
+    runEvery1Hour(extendOverride)
+  } else {
+    unschedule(extendOverride)
+  }
+
   updateDisplay()
 }
 
@@ -151,8 +155,6 @@ void updateState(Map values) {
   }
   
   if (values?.containsKey('overrideEndTime')) {
-    // Date object can't be stored in state, so have to store timestamp instead.
-    // sendEvent(name: 'overrideEndTime', value: values.overrideEndTime.getTime(), displayed: false)
     sendEvent(name: 'overrideEndTime', value: values.overrideEndTime, displayed: false)
   }
 
@@ -165,43 +167,14 @@ void updateState(Map values) {
 
 /**
  * Not used in this device handler.
- * TODO: Can it be removed?
  */
 def parse(String description) {
 }
 
 /**
- * Set the device to function in Genius mode.
- */
-void enableGeniusMode() {
-  logger "${device.label}: enableGeniusMode", 'trace'
-
-  sendEvent(name: 'switchMode', value: 'genius', isStateChange: true, displayed: false)
-
-  unschedule()
-
-  updateDisplay()
-}
-
-/**
- * Set the device to function in switch mode.
- */
-void enableSwitchMode() {
-  logger "${device.label}: enableSwitchMode", 'trace'
-
-  sendEvent(name: 'switchMode', value: 'switch', isStateChange: true, displayed: false)
-
-  parent.pushSwitchState(state.geniusId, device.currentValue('switch') == 'on')
-
-  runEvery1Hour(extendOverride)
-
-  updateDisplay()
-}
-
-/**
  * Extend the override by an hour.
  */
-void extraHour() {
+def extraHour() {
   logger "${device.label}: extraHour", 'trace'
 
   if (device.currentValue('operatingMode') == 'override') {
@@ -212,15 +185,13 @@ void extraHour() {
     }
 
     parent.pushOverridePeriod(state.geniusId, period)
-    // logger 'Not implemented', 'error'
-    //parent.setOverridePeriod(state.geniusId, seconds)
   }
 }
 
 /**
  * Turn on the switch.
  */
-void on() {
+def on() {
   logger "${device.label}: on", 'trace'
 
   sendEvent(name: 'switch', value: 'turningOn', isStateChange: true)
@@ -231,7 +202,7 @@ void on() {
 /**
  * Turn on the switch.
  */
-void off() {
+def off() {
   logger "${device.label}: off", 'trace'
 
   sendEvent(name: 'switch', value: 'turningOff', isStateChange: true)
@@ -242,7 +213,7 @@ void off() {
 /**
  * Refresh all devices.
  */
-void refresh() {
+def refresh() {
   logger "${device.label}: refresh", 'trace'
 
   parent.refresh()
@@ -251,14 +222,16 @@ void refresh() {
 /**
  * Revert the operating mode to the default.
  */
-void revert() {
+def revert() {
   logger "${device.label}: revert", 'trace'
   
   if (device.currentValue('operatingMode') == 'override') {
     parent.revert(state.geniusId)
   
+    // The api reponse doesn't contain the state of the switch after the mode has changed,
+    // And it takes a couple of seconds for this to be reliably updated.
     sendEvent(name: 'switch', value: 'refreshing', displayed: false)
-    runIn(2, parent.refresh)
+    runIn(4, parent.refresh)
   }
 }
 
@@ -281,12 +254,12 @@ private void updateDisplay() {
   def overrideEndTime = device.currentValue('overrideEndTime')
 
   if (switchMode == 'genius' && operatingMode == 'override') {
-    sendEvent(name: 'revertable', value: 'revertable', displayed: false)
+    sendEvent(name: 'canModifyOverride', value: 'yes', displayed: false)
     if (overrideEndTime) {
-      sendEvent(name: 'overrideEndTimeDisplay', value: "Override ends ${overrideEndTime.format("HH:mm")}", displayed: false)
+      sendEvent(name: 'overrideEndTimeDisplay', value: "Override ends ${overrideEndTime.format('HH:mm')}", displayed: false)
     }
   } else {
-    sendEvent(name: 'revertable', value: '', displayed: false)
+    sendEvent(name: 'canModifyOverride', value: '', displayed: false)
     sendEvent(name: 'overrideEndTimeDisplay', value: '', displayed: false)
   }
 }
@@ -298,28 +271,31 @@ private void updateDisplay() {
 private void extendOverride() {
   logger "${device.label}: extendOverride", 'trace'
 
-  parent.pushOverridePeriod(state.geniusId, 3660)
+  parent.pushOverridePeriodAsync(state.geniusId, 3660)
 }
 
-private void logger(msg, level = 'debug') {
+/**
+ * Log message if logging is configured for the specified level.
+ */
+private void logger(message, String level = 'debug') {
   switch (level) {
     case 'error':
-      if (state.logLevel >= 1) log.error msg
+      if (state.logLevel >= 1) log.error message
       break
     case 'warn':
-      if (state.logLevel >= 2) log.warn msg
+      if (state.logLevel >= 2) log.warn message
       break
     case 'info':
-      if (state.logLevel >= 3) log.info msg
+      if (state.logLevel >= 3) log.info message
       break
     case 'debug':
-      if (state.logLevel >= 4) log.debug msg
+      if (state.logLevel >= 4) log.debug message
       break
     case 'trace':
-      if (state.logLevel >= 5) log.trace msg
+      if (state.logLevel >= 5) log.trace message
       break
     default:
-      log.debug msg
+      log.debug message
       break
   }
 }
