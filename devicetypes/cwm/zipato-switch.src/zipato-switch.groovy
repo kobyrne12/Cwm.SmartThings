@@ -58,57 +58,91 @@ metadata {
 
 //#region Methods called by parent app
 
+/**
+ * Stores the configured log level in state.
+ *
+ * @param logLevel  Configured log level.
+ */
 void setLogLevel(Integer logLevel) {
   state.logLevel = logLevel
 }
 
+/**
+ * Stores the Zipato id of this switch in state.
+ *
+ * @param zipatoId  Id of the switch device within Zipato.
+ */
 void setZipatoId(String zipatoId) {
   log.debug ("setting zipato id ${zipatoId}")
   state.zipatoId = zipatoId
 }
 
+/**
+ * Returns the Zipato id of this room.
+ */
 String getZipatoId() {
   return "${state.zipatoId}"
 }
 
+/**
+ * Returns the type of this device.
+ */
 String getZipatoType() {
   return 'switch'
 }
 
-void updateState(values) {
+/**
+ * Updates the state of the switch.
+ *
+ * @param values  Map of attribute names and values.
+ */
+void updateState(Map values) {
   logger "${device.label}: updateState: ${values}"
 
-  sendEvent(name: 'switch', value: (values.switchState ? 'on' : 'off'), isStateChange: true)
+  if (values?.containsKey('switchState')) {
+    sendEvent(name: 'switch', value: (values.switchState ? 'on' : 'off'))
+  }
 }
 
 //#endregion Methods called by parent app
 
 //#region Actions
 
+/**
+ * Not used in this device handler.
+ */
 def parse(String description) {
-  logger "${device.label}: parse", 'trace'
 }
 
-def refresh() {
-  logger "${device.label}: refresh", 'trace'
-
-  parent.refresh()
-}
-
-def on() {
-  logger "${device.label}: on", 'trace'
-
-  sendEvent(name: 'switch', value: 'turningOn', isStateChange: true)
-
-  parent.pushSwitchState(state.zipatoId, 1)
-}
-
+/**
+ * Turn off the switch.
+ */
 def off() {
   logger "${device.label}: off", 'trace'
 
   sendEvent(name: 'switch', value: 'turningOff', isStateChange: true)
 
-  parent.pushSwitchState(state.zipatoId, 0)
+  parent.pushSwitchState(state.zipatoId, false)
+}
+
+/**
+ * Turn on the switch.
+ */
+def on() {
+  logger "${device.label}: on", 'trace'
+
+  sendEvent(name: 'switch', value: 'turningOn', isStateChange: true)
+
+  parent.pushSwitchState(state.zipatoId, true)
+}
+
+/**
+ * Refresh all devices.
+ */
+def refresh() {
+  logger "${device.label}: refresh", 'trace'
+
+  parent.refresh()
 }
 
 //#endregion Actions

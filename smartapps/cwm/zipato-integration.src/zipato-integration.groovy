@@ -35,8 +35,6 @@ definition(
 )
 
 private apiRootUrl() { return 'https://my.zipato.com/zipato-web/v2/' }
-private jsonContentType() { return  'application/json' }
-private sessionCookie() { return  'JSESSIONID' }
 
 //#region Preferences
 
@@ -124,34 +122,27 @@ def manageDevicesPage() {
     return mainPage()
   }
 
-  // Check if device selection has changed, and update child devices if it has
-  def selectedDevicesKey = settings.selectedSwitches ? settings.selectedSwitches.sort(false).join(',') : null
-  if (state.selectedDevicesKey != selectedDevicesKey) {
-    updateChildDevices()
-    state.selectedDevicesKey = selectedDevicesKey
-  }
-
   // Generate options from list of available devices
-  def switchOptions = [:]
-  state.switches.each {
-    switchOptions[it.key] = "${it.value?.device?.name} > ${it.value?.endpoint?.name} > ${it.value?.name}"
+  def options = [:]
+  state.devices.each { key, value ->
+    options[key] = "${value.deviceName} > ${value.endpointName} > ${value.attributeName}"
   }
 
   // Set empty list warning message
-  def switchesMessage = null
-  if (switchOptions == [:]) {
-    switchesMessage = 'No switches available.'
+  def message = null
+  if (options == [:]) {
+    message = 'No devices available.'
   }
 
-  return dynamicPage (name: "manageDevicesPage", title: "Select devices", install: false, uninstall: false) {
+  return dynamicPage (name: 'manageDevicesPage', title: 'Select devices', install: false, uninstall: false) {
     if (switchesMessage) {
       section {
         paragraph "${switchesMessage}"
       }
     }
     section {
-      input name: 'selectedSwitches', type: "enum", required: false, multiple: true,
-            title: "Select switches (${switchOptions.size() ?: 0} found)", options: switchOptions, submitOnChange: true
+      input name: 'selectedDevices', type: 'enum', required: false, multiple: true,
+            title: "Select switches (${options.size() ?: 0} found)", options: options
     }
   }
 }
@@ -171,6 +162,9 @@ def updated() {
 
   state.logLevel = settings.logging ? 5 : 2
 
+  updateChildDevices()
+
+  def children = getChildDevices()
   children.each {
     it.setLogLevel(state.logLevel)
   }
@@ -186,7 +180,10 @@ def uninstalled() {
 
 //#region Service manager functions
 
-private authenticate() {
+/**
+ * Authenticate with Zipato with the credentials provided in settings.
+ */
+private void authenticate() {
   logger "${app.label}: authenticate", 'trace'
 
   initialiseSession()
@@ -195,49 +192,79 @@ private authenticate() {
   }
 }
 
-private updateChildDevices() {
+/**
+ * Create and remove child devices to ensure the child devices
+ * match the list selected in settings.
+ */
+private void updateChildDevices() {
   logger "${app.label}: updateChildDevices", 'trace'
+
+  if (!settings.selectedDevices) {
+    removeAllChildDevices()
+    return
+  }
 
   // Remove child devices for unselected options
   def children = getChildDevices()
   children.each {
     def zipatoId = it.getZipatoId()
-    if (!settings.selectedSwitches.contains(zipatoId)) {
+
+    if (!settings.selectedDevices.contains(zipatoId)) {
       logger "Deleting device ${it.name} (${it.deviceNetworkId})"
       try {
         deleteChildDevice(it.deviceNetworkId)
       }
       catch(e) {
-        logger "Error deleting device ${it.deviceNetworkId}: ${e}"
+        logger "Error deleting device '${it.label}' (${it.deviceNetworkId}): ${e}", 'error'
       }
     }
   }
 
   // Create child devices for selected options
-  settings.selectedSwitches?.each {
-    def isChild = getChildDevice("ZIPATO-${it}")
-    if (!isChild) {
-      def label = state.switches?.get(it)?.device?.name
-      createChildDevice(label, 'Zipato Switch', it)
+  settings.selectedDevices.each {
+    def zipatoDevice = state.devices?.get(it)
+
+    if (!zipatoDevice) {
+      logger "Inconsistent state: device ${it} selected but not found in Zipato devices", 'warn'
+      return
     }
+
+    createChildDevice(zipatoDevice.type, zipatoDevice.id, zipatoDevice.deviceName)
   }
 }
 
-private createChildDevice(label, deviceType, zipatoId) {
+/**
+ * Create a child device of the specified type.
+ *
+ * @param deviceType  Type of the device: house, room, switch.
+ * @param zipatoId  Id of the device within Zipato.
+ * @param label  Label of the new child device.
+ */
+private void createChildDevice(deviceType, zipatoId, label) {
   logger "${app.label}: createChildDevice", 'trace'
 
-  def deviceId = "ZIPATO-${zipatoId}"
-  logger "Creating ${deviceType} ${deviceId} with label '${label}'"
+  def deviceNetworkId = "ZIPATO-${zipatoId}"
+  def child = getChildDevice(deviceNetworkId)
+  if (child) {
+    logger "Child device ${deviceNetworkId} already exists. Not creating."
+    return
+  }
 
-  def device = addChildDevice(app.namespace, deviceType, deviceId, null, [ 'label': label ])
+  def deviceHandler = getDeviceHandlerFor(deviceType)
+
+  logger "Creating ${deviceType} ${zipatoId} with label '${label}' and device handler ${deviceHandler}"
+
+  def device = addChildDevice(app.namespace, deviceHandler, deviceNetworkId, null, [ 'label': label ])
   if (device) {
-    log.debug "setting zipatoId ${zipatoId} and logLevel ${state.logLevel} on child device ${device}"
     device.setZipatoId(zipatoId)
     device.setLogLevel(state.logLevel)
   }
 }
 
-private removeAllChildDevices(delete) {
+/**
+ * Remove all child devices belonging to this app.
+ */
+private void removeAllChildDevices(delete) {
   logger "${app.label}: removeAllChildDevices", 'trace'
 
   def devices = getChildDevices()
@@ -248,15 +275,19 @@ private removeAllChildDevices(delete) {
 
 //#endregion Service manager functions
 
-//#region Zipato API: private functions
+//#region Synchronous API requests
 
-private initialiseSession() {
+/**
+ * Make a request to the session initialization api endpoint
+ * to get a nonce and session id.
+ */
+private void initialiseSession() {
   logger "${app.label}: initialiseSession", 'trace'
   
   def requestParams = [
     uri: apiRootUrl(),
     path: 'user/init',
-    contentType: jsonContentType(),
+    contentType: 'application/json',
   ]
 
   try {
@@ -280,7 +311,10 @@ private initialiseSession() {
   }
 }
 
-private login() {
+/**
+ * Make a request to the login api endpoint to log in the session.
+ */
+private void login() {
   logger "${app.label}: login", 'trace'
 
   def token = sha1(state.authNonce + sha1(settings.zipatoPassword))
@@ -289,9 +323,9 @@ private login() {
     uri: apiRootUrl(),
     path: 'user/login',
     query: [ 'username': settings.zipatoUsername, 'token': token, 'serial': settings.zipatoSerial ],
-    contentType: jsonContentType(),
+    contentType: 'application/json',
     headers: [
-      'Cookie': "${sessionCookie()}=${state.authSessionId}"
+      'Cookie': "JSESSIONID=${state.authSessionId}"
     ],
   ]
 
@@ -315,7 +349,10 @@ private login() {
   }
 }
 
-private fetchDevices() {
+/**
+ * Fetch information about all devices from the api, and store it in state.
+ */
+private void fetchDevices() {
   logger "${app.label}: fetchDevices", 'trace'
   
   def requestParams = [
@@ -324,26 +361,27 @@ private fetchDevices() {
     query: [
       full: true
     ],
-    contentType: jsonContentType(),
+    contentType: 'application/json',
     headers: [
-      'Cookie': "${sessionCookie()}=${state.authSessionId}",
+      'Cookie': "JSESSIONID=${state.authSessionId}",
     ],
   ]
 
   try {
     httpGet(requestParams) { response ->
-      logger "Response: ${response.status}; ${response.data}"
-
       if (response.status == 200 && response.data) {
-        def switches = [:]
+        logger "${response.data.size()} devices returned by the api"
+
+        def devices = [:]
         response.data.each {
+          // At the moment only support switches.
           if (it?.definition?.cluster == 'com.zipato.cluster.OnOff') {
-            switches[it.uuid] = it
+            devices[it.uuid] = mapSwitch(it)
           }
         }
         
-        logger "Switches found: ${switches}"
-        state.switches = switches
+        logger "Found: ${devices.size()} devices"
+        state.devices = devices
       }
       else {
         apiError(response.status, "Unexpected status code: ${response.status}")
@@ -354,78 +392,149 @@ private fetchDevices() {
   }
 }
 
-private fetchAllValues() {
+//#endregion Synchronous API requests
+
+//#region Asynchronous API requests
+
+/**
+ * Refresh the data on all devices.
+ *
+ * @param handler  Name of the response handler function.
+ */
+private void fetchAllValuesAsync(String handler) {
   logger "${app.label}: fetchAllValues", 'trace'
   
   def requestParams = [
     uri: apiRootUrl(),
     path: 'attributes/values',
-    contentType: jsonContentType(),
+    contentType: 'application/json',
     headers: [
-      'Cookie': "${sessionCookie()}=${state.authSessionId}",
+      'Cookie': "JSESSIONID=${state.authSessionId}",
     ],
   ]
 
-  asynchttp_v1.get('fetchAllValuesResponseHandler', requestParams, [ callback: callback ])
+  asynchttp_v1.get(handler, requestParams)
 }
 
-private fetchAllValuesResponseHandler(response, data) {
+/**
+ * Make a request to the api to override the state of a switch.
+ *
+ * @param zipatoId  Id of the switch device within Zipato.
+ * @param value  On/off state which the switch should be switched to.
+ */
+private void pushSwitchStateAsync(String zipatoId, Boolean value) {
+  logger "${app.label}: pushSwitchStateAsync", 'trace'
+
+  def requestParams = [
+    uri: apiRootUrl(),
+    path: "attributes/${zipatoId}/value",
+    contentType: 'application/json',
+    body: [ 'value': value ? 1 : 0 ],
+    headers: [
+      'Cookie': "JSESSIONID=${state.authSessionId}",
+    ],
+  ]
+
+  asynchttp_v1.put('pushSwitchStateResponseHandler', requestParams, [ 'zipatoId': zipatoId, updates: ['switchState': value ]] )
+}
+
+//#endregion Asynchronous API requests
+
+//#region Methods available to child devices
+
+/**
+ * Set the state of a switch.
+ *
+ * @param zipatoId  Id of the switch device within Zipato.
+ * @param value  On/off state which the switch should be switched to.
+ */
+void pushSwitchState(String zipatoId, Boolean value) {
+  pushSwitchStateAsync(zipatoId, value)
+}
+
+/**
+ * Refresh the data on all devices.
+ */
+void refresh() {
+  logger "${app.label}: refresh", 'trace'
+
+  fetchAllValuesAsync('updateAllDevicesResponseHandler')
+}
+
+//#endregion Methods available to child devices
+
+//#region API response handlers
+
+/**
+ * Handles an api response containing data about all devices.
+ *
+ * @param response  Response.
+ * @param data  Additional data passed from the calling method.
+ */
+private void updateAllDevicesResponseHandler(response, data) {
   if (response.hasError()) {
     logger "API error received: ${response.getErrorMessage()}"
     return
   }
 
-  logger "Fetch all values: ${response.status}: ${response.data}"
+  logger "updateAllDevicesResponseHandler: ${response.json}"
 
   def attributeValues = [:]
   response.json.each {
     attributeValues[it.uuid] = it.value.value
   }
   
-  state.attributeValues = attributeValues
-  logger "Fetched attribute values: ${attributeValues}"
+  def children = getChildDevices()
+  children.each { child ->
+    def zipatoId = child.getZipatoId()
+    def zipatoType = child.getZipatoType()
 
-  updateChildren()
+    def zone = response.json.find({ it.uuid == zipatoId })
+    if (!zone) {
+      logger "Not found zone for ${zipatoId}", 'warn'
+      return
+    }
+
+    switch (zipatoType) {
+      // At the moment we're only supporting switches.
+      case 'switch':
+        def updates = mapSwitchUpdates(zone)
+        child.updateState(updates)
+        break;
+      default:
+        logger "Unknown device type: ${zipatoType}", 'warn'
+        break;
+    }
+  }
 }
 
-//#endregion: Zipato API: private functions
-
-//#region Zipato API: methods called by child devices
-
-void pushSwitchState(zipatoId, value) {
-  logger "${app.label}: pushSwitchState", 'trace'
-
-  def requestParams = [
-    uri: apiRootUrl(),
-    path: "attributes/${zipatoId}/value",
-    contentType: jsonContentType(),
-    body: [ 'value': value ],
-    headers: [
-      'Cookie': "${sessionCookie()}=${state.authSessionId}",
-    ],
-  ]
-
-  asynchttp_v1.put('pushSwitchStateResponseHandler', requestParams, [ 'zipatoId': zipatoId, 'switchState': value ] )
-}
-
-private pushSwitchStateResponseHandler(response, data) { 
+/**
+ * Handles a response from an api request to switch a switch.
+ *
+ * @param response  Response.
+ * @param data  Additional data passed from the calling method.
+ */
+private void pushSwitchStateResponseHandler(response, data) { 
   if (response.hasError()) {
     logger "API error received: ${response.getErrorMessage()}"
     return
   }
 
-  logger "Push switch state: ${response.status}: ${response.data}"
-
-  def state = [ switchState: data.switchState ]
+  logger "pushSwitchStateResponseHandler: ${response.data}"
 
   def child = getChildDevice("ZIPATO-${data.zipatoId}")
-  child.updateState(state)
+
+  def updates = [ switchState: data?.updates?.switchState ]
+  child.updateState(updates)
 }
 
-//#endregion Zipato API: available to child devices
+//#region API response handlers
 
 //#region Helpers: private
 
+/**
+ * Initialise any schedulers or subscriptions.
+ */
 private void initialize() {
   unschedule()
 
@@ -434,27 +543,6 @@ private void initialize() {
 
   // Reauthenticate every 3 hours
   runEvery3Hours('authenticate')
-}
-
-private void updateChildren() {
-  logger "${app.label}: updateChildren", 'trace'
-
-  def children = getChildDevices()
-  children.each {
-    def zipatoId = it.getZipatoId()
-    def zipatoType = it.getZipatoType()
-    def attributeValue = state.attributeValues[zipatoId]
-
-    logger "Updating child ${zipatoType} ${zipatoId} with value ${attributeValue}"
-
-    switch (zipatoType) {
-      case 'switch':
-        it.updateState([
-          switchState: "${attributeValue}".toBoolean(),
-        ])
-        break
-    }
-  }
 }
 
 private void apiError(statusCode, message) {
@@ -472,35 +560,65 @@ private String sha1(String value) {
   return new BigInteger(1, digest).toString(16)
 }
 
-private void logger(msg, level = 'debug') {
+/**
+ * Extract basic data about a switch device from the data returned by the API.
+ */
+private Map mapSwitch(data) {
+  return [
+    id: data.uuid,
+    type: 'switch',
+    deviceName: data.device?.name,
+    endpointName: data.endpoint?.name,
+    attributeName: data.name,
+  ]
+}
+
+/**
+ * Extract the current state of a switch device from the data returned by the API, to update the device.
+ */
+private Map mapSwitchUpdates(data) {
+  def updates = [:]
+
+  if (data.value && data.value.containsKey('value')) {
+    updates.switchState = "${data.value.value}".toBoolean()
+  }
+
+  return updates
+}
+
+private String getDeviceHandlerFor(String deviceType) {
+  switch (deviceType) {
+    case 'switch':
+      return 'Zipato Switch'
+    default:
+      return null
+  }
+}
+
+/**
+ * Log message if logging is configured for the specified level.
+ */
+private void logger(message, String level = 'debug') {
   switch (level) {
     case 'error':
-      if (state.logLevel >= 1) log.error msg
+      if (state.logLevel >= 1) log.error message
       break
     case 'warn':
-      if (state.logLevel >= 2) log.warn msg
+      if (state.logLevel >= 2) log.warn message
       break
     case 'info':
-      if (state.logLevel >= 3) log.info msg
+      if (state.logLevel >= 3) log.info message
       break
     case 'debug':
-      if (state.logLevel >= 4) log.debug msg
+      if (state.logLevel >= 4) log.debug message
       break
     case 'trace':
-      if (state.logLevel >= 5) log.trace msg
+      if (state.logLevel >= 5) log.trace message
       break
     default:
-      log.debug msg
+      log.debug message
       break
   }
 }
 
-//#endregion Helpers: private
-
-//#region Helpers: available to child devices
-
-void refresh() {
-  fetchAllValues()
-}
-
-//#endregion Helpers: available to child devices
+//#endregion Helpers
