@@ -6,7 +6,10 @@
  *  A SmartThings device handler which wraps a device on a Genius Hub.
  *
  *  ---
- *  Disclaimer: This device handler and the associated smart app are in no way sanctioned or supported by Genius Hub.
+ *  Disclaimer:
+ *  This device handler and the associated smart app are in no way sanctioned or supported by Genius Hub.
+ *  All work is based on an unpublished api, which may change at any point, causing this device handler or the
+ *  smart app to break. I am in no way responsible for breakage due to such changes.
  *
  *  ---
  *  Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except
@@ -24,8 +27,6 @@ metadata {
     capability 'Switch'
     capability 'Health Check'
 
-    command 'enableGeniusMode'
-    command 'enableSwitchMode'
     command 'extraHour'
     command 'refresh'
     command 'revert'
@@ -80,7 +81,7 @@ metadata {
     }
 
     main(['switch'])
-    details(['switch', 'brand', 'switchMode', 'refresh', 'extraHour', 'revert', 'overrideEndTime'])
+    details(['switch', 'brand', 'refresh', 'extraHour', 'revert', 'overrideEndTime'])
   }
 }
 
@@ -90,9 +91,9 @@ metadata {
  * Called when the settings are updated.
  */
 def updated() {
-  sendEvent(name: 'switchMode', value: settings.switchMode ?: 'genius', displayed: false)
+  state.switchMode = settings.switchMode ?: 'genius'
 
-  if (settings.switchMode == 'switch') {
+  if (state.switchMode == 'switch') {
     parent.pushSwitchState(state.geniusId, device.currentValue('switch') == 'on')
     runEvery1Hour(extendOverride)
   } else {
@@ -241,19 +242,18 @@ def revert() {
 
 /**
  * Update the attributes used to determine how tiles are displayed,
- * based on switch mode.
+ * based on switch mode and state.
  */
 private void updateDisplay() {
   logger "${device.label}: updateDisplay", 'trace'
 
-  def switchMode = device.currentValue('switchMode')
   def operatingMode = device.currentValue('operatingMode')
 
   // Despite this being stored in state as a long (and it's definitely this
   // as storing a Date in state doesn't work) it's coming back here as a Date.
   def overrideEndTime = device.currentValue('overrideEndTime')
 
-  if (switchMode == 'genius' && operatingMode == 'override') {
+  if (state.switchMode == 'genius' && operatingMode == 'override') {
     sendEvent(name: 'canModifyOverride', value: 'yes', displayed: false)
     if (overrideEndTime) {
       sendEvent(name: 'overrideEndTimeDisplay', value: "Override ends ${overrideEndTime.format('HH:mm')}", displayed: false)

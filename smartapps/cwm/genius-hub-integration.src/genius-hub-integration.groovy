@@ -6,8 +6,11 @@
  *  A SmartThings smart app which integrates with Genius Hub.
  *
  *  ---
- *  Disclaimer: This smart app and the associated device handlers are in no way sanctioned or supported by Genius Hub.
- *
+ *  Disclaimer:
+ *  This smart app and the associated device handlers are in no way sanctioned or supported by Genius Hub.
+ *  All work is based on an unpublished api, which may change at any point, causing this smart app or the
+ *  device handlers to break. I am in no way responsible for breakage due to such changes. 
+ * 
  *  ---
  *  Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except
  *  in compliance with the License. You may obtain a copy of the License at:
@@ -170,10 +173,12 @@ def updated() {
     it.setLogLevel(state.logLevel)
   }
 
-  unsubscribe()
+  unschedule()
 
   // Refresh data for all devices every 5 minutes
   runEvery5Minutes(refresh)
+
+  refresh()
 }
 
 def uninstalled() {
@@ -481,6 +486,17 @@ private void pushSwitchStateAsync(Integer geniusId, Boolean value) {
 //#region Methods available to child devices
 
 /**
+ * Override the temperature for the whole house.
+ *
+ * @param value  Temperature in Celsius.
+ */
+void pushHouseTemperature(Double value) {
+  state.devices.values().findAll{ it.type == 'room' }.each{
+    pushRoomTemperatureAsync(it.id, value)
+  }
+}
+
+/**
  * Set the mode of a zone.
  *
  * @param geniusId  Id of the zone within the Genius Hub.
@@ -504,7 +520,7 @@ void pushOverridePeriod(Integer geniusId, Integer period) {
  * Override the room temperature.
  *
  * @param geniusId  Id of the room zone within the Genius Hub.
- * @param value  Temperature in Celcius.
+ * @param value  Temperature in Celsius.
  */
 void pushRoomTemperature(Integer geniusId, Double value) {
   pushRoomTemperatureAsync(geniusId, value)
@@ -573,7 +589,7 @@ private void updateZoneResponseHandler(response, data) {
 
   switch (geniusType) {
     case 'house':
-      logger 'TODO: Implement house', 'warn'
+      updates << mapHouseUpdates(response.json.data)
       break;
     case 'room':
       updates << mapRoomUpdates(response.json.data)
@@ -613,7 +629,8 @@ private void updateAllZonesResponseHandler(response, data) {
 
     switch (geniusType) {
       case 'house':
-        logger 'TODO: Implement house', 'warn'
+        def updates = mapHouseUpdates(zone)
+        child.updateState(updates)
         break;
       case 'room':
         def updates = mapRoomUpdates(zone)
@@ -690,14 +707,34 @@ private Map mapSwitch(data) {
 }
 
 /**
+ * Extract the current state of a house zone from the data returned by the API, to update the device.
+ */
+private Map mapHouseUpdates(data) {
+  def updates = [:]
+
+  if (data.containsKey('nodes')) {
+    // Use minimum battery level from all child devices as house battery level.
+    updates.minBattery = data.nodes
+                          .collect{ it.childValues.Battery.val }
+                          .min { it }
+  }
+
+  if (data.containsKey('fPV')) {
+    updates.sensorTemperature = data.fPV
+  }
+
+  return updates
+}
+
+/**
  * Extract the current state of a room zone from the data returned by the API, to update the device.
  */
 private Map mapRoomUpdates(data) {
   def updates = [:]
 
   if (data.containsKey('nodes')) {
-    // Use minimum battery level from all child devices (motion sensor and radiator valves) as room battery level.
-    updates.battery = data.nodes
+    // Use minimum battery level from all child devices (eg. motion sensor and radiator valves) as room battery level.
+    updates.minBattery = data.nodes
                           .collect{ it.childValues.Battery.val }
                           .min { it }
 

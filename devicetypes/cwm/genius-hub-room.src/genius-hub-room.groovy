@@ -6,7 +6,10 @@
  *  A SmartThings device handler which wraps a device on a Genius Hub.
  *
  *  ---
- *  Disclaimer: This device handler and the associated smart app are in no way sanctioned or supported by Genius Hub.
+ *  Disclaimer:
+ *  This device handler and the associated smart app are in no way sanctioned or supported by Genius Hub.
+ *  All work is based on an unpublished api, which may change at any point, causing this device handler or the
+ *  smart app to break. I am in no way responsible for breakage due to such changes.
  *
  *  ---
  *  Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except
@@ -241,7 +244,7 @@ def setTargetTemperature(Double value) {
 
 /**
  * Update the attributes used to determine how tiles are displayed,
- * based on switch mode.
+ * based on state.
  */
 private void updateDisplay() {
   logger "${device.label}: updateDisplay", 'trace'
