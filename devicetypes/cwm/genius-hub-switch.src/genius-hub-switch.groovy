@@ -271,7 +271,7 @@ private void updateDisplay() {
 private void extendOverride() {
   logger "${device.label}: extendOverride", 'trace'
 
-  parent.pushOverridePeriodAsync(state.geniusId, 3660)
+  parent.pushOverridePeriod(state.geniusId, 3660)
 }
 
 /**
