@@ -108,9 +108,9 @@ def updated() {
 //#region Methods called by parent app
 
 /**
- * Stores the Genius Hub id of this room in state.
+ * Stores the Genius Hub id of this switch in state.
  *
- * @param geniusId  Id of the room zone within the Genius Hub.
+ * @param geniusId  Id of the switch zone within the Genius Hub.
  */
 void setGeniusId(Integer geniusId) {
   state.geniusId = geniusId
@@ -192,23 +192,23 @@ def extraHour() {
 /**
  * Turn on the switch.
  */
-def on() {
-  logger "${device.label}: on", 'trace'
-
-  sendEvent(name: 'switch', value: 'turningOn', isStateChange: true)
-
-  parent.pushSwitchState(state.geniusId, true)
-}
-
-/**
- * Turn on the switch.
- */
 def off() {
   logger "${device.label}: off", 'trace'
 
   sendEvent(name: 'switch', value: 'turningOff', isStateChange: true)
 
   parent.pushSwitchState(state.geniusId, false)
+}
+
+/**
+ * Turn on the switch.
+ */
+def on() {
+  logger "${device.label}: on", 'trace'
+
+  sendEvent(name: 'switch', value: 'turningOn', isStateChange: true)
+
+  parent.pushSwitchState(state.geniusId, true)
 }
 
 /**

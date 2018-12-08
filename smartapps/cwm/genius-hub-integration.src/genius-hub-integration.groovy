@@ -160,11 +160,7 @@ def installed() {
 def updated() {
   logger "${app.label}: updated", 'trace'
 
-  if (settings.logging) {
-    state.logLevel = 5
-  } else {
-    state.logLevel = 2
-  }
+  state.logLevel = settings.logging ? 5 : 2
 
   updateChildDevices()
 
@@ -189,12 +185,19 @@ def uninstalled() {
 
 //#region Service manager functions
 
+/**
+ * Authenticate with Genius Hub with the credentials provided in settings.
+ */
 private void authenticate() {
   logger "${app.label}: authenticate", 'trace'
 
   verifyAuthentication()
 }
 
+/**
+ * Create and remove child devices to ensure the child devices
+ * match the list selected in settings.
+ */
 private void updateChildDevices() {
   logger "${app.label}: updateChildDevices", 'trace'
 
@@ -235,7 +238,14 @@ private void updateChildDevices() {
   }
 }
 
-private void createChildDevice(deviceType, geniusId, label) {
+/**
+ * Create a child device of the specified type.
+ *
+ * @param deviceType  Type of the zone: house, room, switch.
+ * @param geniusId  Id of the zone within the Genius Hub.
+ * @param label  Label of the new child device.
+ */
+private void createChildDevice(String deviceType, Integer geniusId, String label) {
   logger "${app.label}: createChildDevice", 'trace'
 
   def deviceNetworkId = "GENIUS-${geniusId}"
@@ -257,7 +267,10 @@ private void createChildDevice(deviceType, geniusId, label) {
   }
 }
 
-private void removeAllChildDevices(delete) {
+/**
+ * Remove all child devices belonging to this app.
+ */
+private void removeAllChildDevices() {
   logger "${app.label}: removeAllChildDevices", 'trace'
 
   def devices = getChildDevices()
@@ -360,6 +373,8 @@ private void fetchZones() {
 
 /**
  * Refresh the data on all devices.
+ *
+ * @param handler  Name of the response handler function.
  */
 private void fetchZonesAsync(String handler) {
   logger "${app.label}: fetchZonesAsync", 'trace'
@@ -566,43 +581,6 @@ void revert(Integer geniusId) {
 //#region API response handlers
 
 /**
- * Handles an api response containing data about a single zone.
- *
- * @param response  Response.
- * @param data  Additional data passed from the calling method.
- */
-private void updateZoneResponseHandler(response, data) { 
-  if (response.hasError()) {
-    logger "API error received: ${response.getErrorMessage()}"
-    return
-  }
-
-  logger "updateZoneResponseHandler: ${response.json}"
-
-  def child = getChildDevice("GENIUS-${data.geniusId}")
-  if (!child) {
-    logger "Child device for ${data.geniusId} not found"
-  }
-
-  def geniusType = child.getGeniusType()
-  def updates = data.updates as Map ?: [:]
-
-  switch (geniusType) {
-    case 'house':
-      updates << mapHouseUpdates(response.json.data)
-      break;
-    case 'room':
-      updates << mapRoomUpdates(response.json.data)
-      child.updateState(updates)
-      break;
-    case 'switch':
-      updates << mapSwitchUpdates(response.json.data)
-      child.updateState(updates)
-      break;
-  }
-}
-
-/**
  * Handles an api response containing data about all zones.
  *
  * @param response  Response.
@@ -640,7 +618,48 @@ private void updateAllZonesResponseHandler(response, data) {
         def updates = mapSwitchUpdates(zone)
         child.updateState(updates)
         break;
+      default:
+        logger "Unknown device type: ${geniusType}", 'warn'
+        break;
     }
+  }
+}
+
+/**
+ * Handles an api response containing data about a single zone.
+ *
+ * @param response  Response.
+ * @param data  Additional data passed from the calling method.
+ */
+private void updateZoneResponseHandler(response, data) { 
+  if (response.hasError()) {
+    logger "API error received: ${response.getErrorMessage()}"
+    return
+  }
+
+  logger "updateZoneResponseHandler: ${response.json}"
+
+  def child = getChildDevice("GENIUS-${data.geniusId}")
+  if (!child) {
+    logger "Child device for ${data.geniusId} not found"
+  }
+
+  def geniusType = child.getGeniusType()
+  def updates = data.updates as Map ?: [:]
+
+  switch (geniusType) {
+    case 'house':
+      updates << mapHouseUpdates(response.json.data)
+      child.updateState(updates)
+      break;
+    case 'room':
+      updates << mapRoomUpdates(response.json.data)
+      child.updateState(updates)
+      break;
+    case 'switch':
+      updates << mapSwitchUpdates(response.json.data)
+      child.updateState(updates)
+      break;
   }
 }
 
