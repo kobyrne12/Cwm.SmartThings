@@ -235,7 +235,7 @@ def setTargetTemperature(Double value) {
   sendEvent(name: 'targetTemperature', value: value, unit: "°${temperatureScale}")  
 
   def valueInCelsius = convertHubScaleToCelsius(value)
-  parent.pushRoomTemperatureAsync(state.geniusId, valueInCelsius)
+  parent.pushRoomTemperature(state.geniusId, valueInCelsius)
 }
 
 //#endregion Actions

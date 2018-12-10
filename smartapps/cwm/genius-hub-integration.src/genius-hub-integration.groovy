@@ -1,5 +1,5 @@
 /**
- *  Genius Hub Room
+ *  Genius Hub Integration
  * 
  *  Copyright 2018 Neil Cumpstey
  * 
@@ -448,9 +448,10 @@ private void pushOverridePeriodAsync(Integer geniusId, Integer period) {
  * Make a request to the api to override the room temperature.
  *
  * @param geniusId  Id of the room zone within the Genius Hub.
- * @param value  Temperature in Celcius.
+ * @param value  Temperature in Celsius.
+ * @param overridePeriod  Period in seconds for which the default temperature should be overridden.
  */
-private void pushRoomTemperatureAsync(Integer geniusId, Double value) {
+private void pushRoomTemperatureAsync(Integer geniusId, Double value, Integer overridePeriod) {
   logger "${app.label}: pushRoomTemperatureAsync(${geniusId}, ${value})", 'trace'
 
   def requestParams = [
@@ -459,7 +460,7 @@ private void pushRoomTemperatureAsync(Integer geniusId, Double value) {
     contentType: 'application/json',
     body: [
       'fBoostSP': value,
-      'iBoostTimeRemaining': 3600,
+      'iBoostTimeRemaining': overridePeriod,
       'iMode': 16
     ],
     headers: [
@@ -476,7 +477,7 @@ private void pushRoomTemperatureAsync(Integer geniusId, Double value) {
  * @param geniusId  Id of the switch zone within the Genius Hub.
  * @param value  On/off state which the switch should be switched to.
  */
-private void pushSwitchStateAsync(Integer geniusId, Boolean value) {
+private void pushSwitchStateAsync(Integer geniusId, Boolean value, Integer overridePeriod) {
   logger "${app.label}: pushSwitchStateAsync(${geniusId}, ${value})", 'trace'
 
   def requestParams = [
@@ -485,7 +486,7 @@ private void pushSwitchStateAsync(Integer geniusId, Boolean value) {
     contentType: 'application/json',
     body: [
       'fBoostSP': value,
-      'iBoostTimeRemaining': 3600,
+      'iBoostTimeRemaining': overridePeriod,
       'iMode': 16
     ],
     headers: [
@@ -504,10 +505,11 @@ private void pushSwitchStateAsync(Integer geniusId, Boolean value) {
  * Override the temperature for the whole house.
  *
  * @param value  Temperature in Celsius.
+ * @param overridePeriod  Period in seconds for which the default temperature should be overridden.
  */
-void pushHouseTemperature(Double value) {
+void pushHouseTemperature(Double value, Integer overridePeriod = 3600) {
   state.devices.values().findAll{ it.type == 'room' }.each{
-    pushRoomTemperatureAsync(it.id, value)
+    pushRoomTemperatureAsync(it.id, value, overridePeriod)
   }
 }
 
@@ -536,9 +538,10 @@ void pushOverridePeriod(Integer geniusId, Integer period) {
  *
  * @param geniusId  Id of the room zone within the Genius Hub.
  * @param value  Temperature in Celsius.
+ * @param overridePeriod  Period in seconds for which the default temperature should be overridden.
  */
-void pushRoomTemperature(Integer geniusId, Double value) {
-  pushRoomTemperatureAsync(geniusId, value)
+void pushRoomTemperature(Integer geniusId, Double value, Integer overridePeriod = 3600) {
+  pushRoomTemperatureAsync(geniusId, value, overridePeriod)
 }
 
 /**
@@ -546,9 +549,10 @@ void pushRoomTemperature(Integer geniusId, Double value) {
  *
  * @param geniusId  Id of the switch zone within the Genius Hub.
  * @param value  On/off state which the switch should be switched to.
+ * @param overridePeriod  Period in seconds for which the switch's default state should be overridden.
  */
-void pushSwitchState(Integer geniusId, Boolean value) {
-  pushSwitchStateAsync(geniusId, value)
+void pushSwitchState(Integer geniusId, Boolean value, Integer overridePeriod = 3600) {
+  pushSwitchStateAsync(geniusId, value, overridePeriod)
 }
 
 /**
