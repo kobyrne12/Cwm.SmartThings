@@ -31,9 +31,8 @@ metadata {
     command 'refresh'
     command 'revert'
 
-    attribute 'operatingMode', 'string'
+    attribute 'operatingState', 'enum', ['off', 'timer', 'override']
     attribute 'overrideEndTime', 'date'
-    attribute 'overrideEndTimeDisplay', 'string'
   }
 
   preferences {
@@ -55,7 +54,7 @@ metadata {
         attributeState 'turningOff', label: 'Turning off', action: 'switch.on', icon: 'st.Home.home30', backgroundColor: '#ffffff', nextState: 'turningOff'
         attributeState 'refreshing', label: 'Refreshing', action: 'switch.on', icon: 'st.Home.home30', backgroundColor: '#90bced', nextState: 'refreshing'
       }
-      tileAttribute ('device.operatingMode', key: 'SECONDARY_CONTROL') {
+      tileAttribute ('device.operatingState', key: 'SECONDARY_CONTROL') {
         attributeState('off', label: '${currentValue}', icon: 'https://raw.githubusercontent.com/cumpstey/Cwm.SmartThings/master/smartapps/cwm/genius-hub-integration.src/assets/genius-hub-off-120.png')
         attributeState('override', label: '${currentValue}', icon: 'https://raw.githubusercontent.com/cumpstey/Cwm.SmartThings/master/smartapps/cwm/genius-hub-integration.src/assets/genius-hub-override-120.png')
         attributeState('timer', label: '${currentValue}', icon: 'https://raw.githubusercontent.com/cumpstey/Cwm.SmartThings/master/smartapps/cwm/genius-hub-integration.src/assets/genius-hub-timer-120.png')
@@ -147,8 +146,8 @@ String getGeniusType() {
 void updateState(Map values) {
   logger "${device.label}: updateState: ${values}", 'trace'
 
-  if (values?.containsKey('operatingMode')) {
-    sendEvent(name: 'operatingMode', value: values.operatingMode)
+  if (values?.containsKey('operatingState')) {
+    sendEvent(name: 'operatingState', value: values.operatingState)
   }
 
   if (values?.containsKey('switchState')) {
@@ -178,7 +177,7 @@ def parse(String description) {
 def extraHour() {
   logger "${device.label}: extraHour", 'trace'
 
-  if (state.switchMode == 'genius' && device.currentValue('operatingMode') == 'override') {
+  if (state.switchMode == 'genius' && device.currentValue('operatingState') == 'override') {
     def overrideEndTime = device.currentValue('overrideEndTime')
     def period = 3600
     if (overrideEndTime) {
@@ -226,7 +225,7 @@ def refresh() {
 def revert() {
   logger "${device.label}: revert", 'trace'
   
-  if (state.switchMode == 'genius' && device.currentValue('operatingMode') == 'override') {
+  if (state.switchMode == 'genius' && device.currentValue('operatingState') == 'override') {
     parent.revert(state.geniusId)
   
     // The api reponse doesn't contain the state of the switch after the mode has changed,
@@ -247,13 +246,11 @@ def revert() {
 private void updateDisplay() {
   logger "${device.label}: updateDisplay", 'trace'
 
-  def operatingMode = device.currentValue('operatingMode')
+  def operatingState = device.currentValue('operatingState')
 
-  // Despite this being stored in state as a long (and it's definitely this
-  // as storing a Date in state doesn't work) it's coming back here as a Date.
   def overrideEndTime = device.currentValue('overrideEndTime')
 
-  if (state.switchMode == 'genius' && operatingMode == 'override') {
+  if (state.switchMode == 'genius' && operatingState == 'override') {
     sendEvent(name: 'canModifyOverride', value: 'yes', displayed: false)
     if (overrideEndTime) {
       sendEvent(name: 'overrideEndTimeDisplay', value: "Override ends ${overrideEndTime.format('HH:mm')}", displayed: false)

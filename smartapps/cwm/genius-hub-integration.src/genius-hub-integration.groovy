@@ -769,7 +769,7 @@ private Map mapRoomUpdates(data) {
   }
 
   if (data.containsKey('iMode')) {
-    updates.operatingMode = mapMode(data.iMode)
+    updates.operatingState = mapMode(data.iMode)
   }
   
   if (data.containsKey('iBoostTimeRemaining')) {
@@ -790,7 +790,7 @@ private Map mapSwitchUpdates(data) {
   def updates = [:]
 
   if (data.containsKey('iMode')) {
-    updates.operatingMode = mapMode(data.iMode)
+    updates.operatingState = mapMode(data.iMode)
   }
   
   if (data.containsKey('iBoostTimeRemaining')) {
