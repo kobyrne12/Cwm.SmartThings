@@ -24,8 +24,8 @@
 metadata {
   definition (name: 'Genius Hub Switch', namespace: 'cwm', author: 'Neil Cumpstey', vid: 'generic-switch') {
     capability 'Actuator'
-    capability 'Switch'
     capability 'Health Check'
+    capability 'Switch'
 
     command 'extraHour'
     command 'refresh'
@@ -38,7 +38,7 @@ metadata {
 
   preferences {
     section {
-      input name: 'switchMode', type: 'enum', title: 'Switch mode',
+      input name: 'switchMode', type: 'enum', title: 'Switch mode', defaultValue: 'genius',
         options: [
           'genius' : 'Genius Hub switch (override for a period and revert)',
           'switch' : 'Normal on/off switch (permanent override)'
@@ -178,7 +178,7 @@ def parse(String description) {
 def extraHour() {
   logger "${device.label}: extraHour", 'trace'
 
-  if (device.currentValue('operatingMode') == 'override') {
+  if (state.switchMode == 'genius' && device.currentValue('operatingMode') == 'override') {
     def overrideEndTime = device.currentValue('overrideEndTime')
     def period = 3600
     if (overrideEndTime) {
@@ -226,7 +226,7 @@ def refresh() {
 def revert() {
   logger "${device.label}: revert", 'trace'
   
-  if (device.currentValue('operatingMode') == 'override') {
+  if (state.switchMode == 'genius' && device.currentValue('operatingMode') == 'override') {
     parent.revert(state.geniusId)
   
     // The api reponse doesn't contain the state of the switch after the mode has changed,

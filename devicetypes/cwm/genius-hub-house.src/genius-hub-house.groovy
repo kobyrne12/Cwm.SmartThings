@@ -23,16 +23,16 @@
  */
 metadata {
   definition (name: 'Genius Hub House', namespace: 'cwm', author: 'Neil Cumpstey') {
-		capability 'Actuator'
-		capability 'Temperature Measurement'
-		capability 'Refresh'
-		capability 'Sensor'
+    capability 'Actuator'
     capability 'Battery'
-		capability 'Health Check'
+    capability 'Health Check'
+    capability 'Refresh'
+    capability 'Sensor'
+    capability 'Temperature Measurement'
+    capability 'Thermostat Heating Setpoint'
 
     command 'override'
     command 'refresh'
-    command 'setTargetTemperature'
   }
 
   preferences {
@@ -54,9 +54,9 @@ metadata {
           ]
         )
       }
-      tileAttribute('device.targetTemperature', key: 'VALUE_CONTROL', label: '${currentValue}°') {
-        attributeState('up', action: 'setTargetTemperature')
-        attributeState('down', action: 'setTargetTemperature')
+      tileAttribute('device.heatingSetpoint', key: 'VALUE_CONTROL', label: '${currentValue}°') {
+        attributeState('up', action: 'setHeatingSetpoint')
+        attributeState('down', action: 'setHeatingSetpoint')
       }
     }
     standardTile('brand', 'device', width: 1, height: 1, decoration: 'flat') {
@@ -90,7 +90,7 @@ metadata {
 def installed() {
   // Set the default target temperature to something sensible,
   // otherwise it'll be zero.
-  sendEvent(name: 'targetTemperature', value: convertCelsiusToHubScale(21), unit: "°${temperatureScale}", displayed: false)
+  sendEvent(name: 'heatingSetpoint', value: convertCelsiusToHubScale(21), unit: "°${temperatureScale}", displayed: false)
 }
 
 //#endregion Event handlers
@@ -163,11 +163,11 @@ def parse(String description) {
 def override() {
   logger "${device.label}: override", 'trace'
 
-  def targetTemperature = device.currentValue('targetTemperature').toDouble()
-  sendEvent(name: 'targetTemperature', value: targetTemperature, unit: "°${temperatureScale}", isStateChange: true)
+  def heatingSetpoint = device.currentValue('heatingSetpoint').toDouble()
+  sendEvent(name: 'heatingSetpoint', value: heatingSetpoint, unit: "°${temperatureScale}", isStateChange: true)
 
-  def targetTemperatureInCelsius = convertHubScaleToCelsius(targetTemperature)
-  parent.pushHouseTemperature(targetTemperatureInCelsius)
+  def heatingSetpointInCelsius = convertHubScaleToCelsius(heatingSetpoint)
+  parent.pushHouseTemperature(heatingSetpointInCelsius)
 }
 
 /**
@@ -184,10 +184,10 @@ def refresh() {
  *
  * @param value  Target temperature, in either Celsius or Fahrenheit as defined by the SmartThings hub settings.
  */
-def setTargetTemperature(Double value) {
-  logger "${device.label}: setTargetTemperature: ${value}", 'trace'
+def setHeatingSetpoint(Double value) {
+  logger "${device.label}: setHeatingSetpoint: ${value}", 'trace'
 
-  sendEvent(name: 'targetTemperature', value: value, unit: "°${temperatureScale}", displayed: false)
+  sendEvent(name: 'heatingSetpoint', value: value, unit: "°${temperatureScale}", displayed: false)
 }
 
 //#endregion Actions

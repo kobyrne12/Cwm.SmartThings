@@ -24,17 +24,17 @@
 metadata {
   definition (name: 'Genius Hub Room', namespace: 'cwm', author: 'Neil Cumpstey') {
     capability 'Actuator'
-    capability 'Illuminance Measurement'
-    capability 'Temperature Measurement'
-    capability 'Refresh'
-    capability 'Sensor'
     capability 'Battery'
     capability 'Health Check'
+    capability 'Illuminance Measurement'
+    capability 'Refresh'
+    capability 'Sensor'
+    capability 'Temperature Measurement'
+    capability 'Thermostat Heating Setpoint'
 
     command 'extraHour'
     command 'refresh'
     command 'revert'
-    command 'setTargetTemperature'
 
     attribute 'operatingMode', 'string'
     attribute 'overrideEndTime', 'date'
@@ -60,9 +60,9 @@ metadata {
           ]
         )
       }
-      tileAttribute('device.targetTemperature', key: 'VALUE_CONTROL', label: '${currentValue}°') {
-        attributeState('up', action: 'setTargetTemperature')
-        attributeState('down', action: 'setTargetTemperature')
+      tileAttribute('device.heatingSetpoint', key: 'VALUE_CONTROL', label: '${currentValue}°') {
+        attributeState('up', action: 'setHeatingSetpoint')
+        attributeState('down', action: 'setHeatingSetpoint')
       }
       tileAttribute ('device.operatingMode', key: 'SECONDARY_CONTROL') {
         attributeState('off', label: '${currentValue}', icon: 'https://raw.githubusercontent.com/cumpstey/Cwm.SmartThings/master/smartapps/cwm/genius-hub-integration.src/assets/genius-hub-off-120.png')
@@ -229,10 +229,10 @@ def revert() {
  *
  * @param value  Target temperature, in either Celsius or Fahrenheit as defined by the SmartThings hub settings.
  */
-def setTargetTemperature(Double value) {
-  logger "${device.label}: setTargetTemperature: ${value}", 'trace'
+def setHeatingSetpoint(Double value) {
+  logger "${device.label}: setHeatingSetpoint: ${value}", 'trace'
 
-  sendEvent(name: 'targetTemperature', value: value, unit: "°${temperatureScale}")  
+  sendEvent(name: 'heatingSetpoint', value: value, unit: "°${temperatureScale}")  
 
   def valueInCelsius = convertHubScaleToCelsius(value)
   parent.pushRoomTemperature(state.geniusId, valueInCelsius)
@@ -263,7 +263,7 @@ private void updateDisplay() {
   } else {
     sendEvent(name: 'canModifyOverride', value: '', displayed: false)
     sendEvent(name: 'overrideEndTimeDisplay', value: '', displayed: false)
-    sendEvent(name: 'targetTemperature', value: device.currentValue('temperature'), unit: "°${temperatureScale}", displayed: false)
+    sendEvent(name: 'heatingSetpoint', value: device.currentValue('temperature'), unit: "°${temperatureScale}", displayed: false)
   }
 }
 
