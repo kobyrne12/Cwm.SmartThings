@@ -151,8 +151,7 @@ def manageDevicesPage() {
 def installed() {
   state.installed = true
 
-  // Refresh data for all devices every 5 minutes
-  runEvery5Minutes(refresh)
+  initialize()
 }
 
 def updated() {
@@ -167,10 +166,7 @@ def updated() {
     it.setLogLevel(state.logLevel)
   }
 
-  unschedule()
-
-  // Refresh data for all devices every 5 minutes
-  runEvery5Minutes(refresh)
+  initialize()
 
   refresh()
 }
@@ -189,6 +185,7 @@ def uninstalled() {
 private void authenticate() {
   logger "${app.label}: authenticate", 'trace'
 
+  checkIn()
   verifyAuthentication()
 }
 
@@ -280,6 +277,39 @@ private void removeAllChildDevices() {
 //#endregion Service manager functions
 
 //#region Synchronous API requests
+
+/**
+ * Make a request to the checkin api endpoint to retrieve the tunnel server hostname
+ */
+private void checkIn() {
+  logger "${app.label}: checkIn", 'trace'
+  
+  def requestParams = [
+    uri: 'https://hub.geniushub.co.uk/',
+    path: 'checkin',
+    contentType: 'application/json',
+    headers: [
+      'Authorization': getAuthorizationHeader()
+    ]
+  ]
+
+  try {
+    httpGet(requestParams) { response ->
+      logger "Response: ${response.status}; ${response.data}"
+
+      if (response.status == 200) {
+        state.apiServer = response.data.data.tunnel.server_name
+
+        logger "Tunnel server url: ${response.data.data.tunnel.server_name}"
+      }
+      else {
+        handleApiError(response)
+      }
+    }
+  } catch (groovyx.net.http.HttpResponseException e) {
+    logApiError(e.statusCode, "${e}")
+  }
+}
 
 /**
  * Make a request to the authentication test api endpoint to verify the credentials.
@@ -669,7 +699,25 @@ private void updateZoneResponseHandler(response, data) {
 
 //#region Helpers
 
+/**
+ * Set up schedulers.
+ */
+private void initialize() {
+  unschedule()
+
+  // Refresh data for all devices every 5 minutes
+  runEvery5Minutes('refresh')
+
+  // Check the tunnel url every so often, in order to fix any
+  // auth errors which aren't caught by the error 308 handling.
+  runEvery3Hours('checkIn')
+}
+
 private getApiRootUrl() {
+  if (!state.apiServer) {
+    checkIn()
+  }
+
   def apiServer = state.apiServer ?: 'hub-server-1.heatgenius.co.uk'
   return "https://${apiServer}/v3/"
 }
