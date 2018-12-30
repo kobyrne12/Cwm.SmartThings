@@ -687,7 +687,7 @@ private void handleAsyncApiError(response) {
 private void handleApiError(response) {
   if (response.status == 308) {
     // The api proxy server has changed url.
-    logApiServerChange(response.headers['X-Genius-ProxyLocation'])
+    logApiServerChange(response.headers['X-Genius-ProxyLocation'].value)
     return
   }
 
