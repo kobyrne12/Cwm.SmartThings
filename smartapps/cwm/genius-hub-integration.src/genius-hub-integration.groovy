@@ -822,8 +822,9 @@ private Map mapHouseUpdates(data) {
   if (data.containsKey('nodes')) {
     // Use minimum battery level from all child devices as house battery level.
     updates.minBattery = data.nodes
-                          .collect{ it.childValues.Battery.val }
-                          .min { it }
+                             .findAll { it.childValues.containsKey('Battery') }
+                             .collect { it.childValues.Battery.val }
+                             .min { it }
   }
 
   if (data.containsKey('fPV')) {
@@ -842,13 +843,14 @@ private Map mapRoomUpdates(data) {
   if (data.containsKey('nodes')) {
     // Use minimum battery level from all child devices (eg. motion sensor and radiator valves) as room battery level.
     updates.minBattery = data.nodes
-                          .collect{ it.childValues.Battery.val }
-                          .min { it }
+                             .findAll { it.childValues.containsKey('Battery') }
+                             .collect { it.childValues.Battery.val }
+                             .min { it }
 
-    // Use maximum luminance level from all child motion sensor devices as room luminance level.
+    // Use maximum illuminance level from all child motion sensor devices as room illuminance level.
     updates.illuminance = data.nodes
-                              .findAll { it.childValues.containsKey('Motion') }
-                              .collect{ it.childValues.LUMINANCE.val }
+                              .findAll { it.childValues.containsKey('LUMINANCE') }
+                              .collect { it.childValues.LUMINANCE.val }
                               .max { it }
   }
 
