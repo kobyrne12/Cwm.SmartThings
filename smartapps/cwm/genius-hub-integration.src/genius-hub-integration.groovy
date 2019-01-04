@@ -365,6 +365,9 @@ private void fetchZones() {
       if (response.status == 200 && response.data) {
         logger "${response.data.data.size()} devices returned by the api"
 
+        // We've had a successful request, so reset the current error
+        state.currentError = null
+
         def devices = [:]
         response.data.data?.each {
           switch (it?.iType) {
@@ -626,6 +629,9 @@ private void updateAllZonesResponseHandler(response, data) {
 
   logger "updateAllZonesResponseHandler: ${response.json}"
 
+  // We've had a successful request, so reset the current error
+  state.currentError = null
+
   def children = getChildDevices()
   children.each { child ->
     def geniusId = child.getGeniusId()
@@ -670,6 +676,9 @@ private void updateZoneResponseHandler(response, data) {
   }
 
   logger "updateZoneResponseHandler: ${response.json}"
+
+  // We've had a successful request, so reset the current error
+  state.currentError = null
 
   def child = getChildDevice("GENIUS-${data.geniusId}")
   if (!child) {
