@@ -1,0 +1,335 @@
+/**
+ *	Vesternet VES-ZB-DIM-004 2-Wire Capable Dimmer
+ * 
+ */
+import groovy.json.JsonOutput
+import physicalgraph.zigbee.zcl.DataType
+metadata {
+	definition (name: "Vesternet VES-ZB-DIM-004 2-Wire Capable Dimmer", namespace: "Vesternet", author: "Vesternet", mcdSync: true, ocfDeviceType: "oic.d.light", mnmn: "Sunricher", vid: "39c9d95b-1181-3e94-a915-2f14024f76fc") { 
+        capability "Switch"
+        capability "Switch Level"
+        capability "Actuator"
+        capability "Sensor"
+        capability "Power Meter"
+		capability "Energy Meter"
+		capability "Voltage Measurement"
+		capability "Refresh"				
+		capability "Configuration"
+
+        fingerprint profileId: "0104", inClusters: "0000,0003,0004,0005,0006,0008,0702,0B04,0B05,1000", outClusters: "0019", manufacturer: "Sunricher", model: "Micro Smart Dimmer", deviceJoinName: "Vesternet VES-ZB-DIM-004 2-Wire Capable Dimmer" 
+        fingerprint profileId: "0104", inClusters: "0000,0003,0004,0005,0006,0008,0702,0B04,0B05,1000", outClusters: "0019", manufacturer: "Sunricher", model: "HK-SL-DIM-A", deviceJoinName: "Vesternet VES-ZB-DIM-004 2-Wire Capable Dimmer"
+	}
+	preferences {
+        input name: "additionalReportingEnable", type: "bool", title: "Enable Additional Reporting", defaultValue: false       
+        input name: "powerReportChange", type: "enum", title: "Power Change (W)", options: [[10:"1W"],[20:"2W"],[30:"3W"],[40:"4W"],[50:"5W"],[60:"6W"],[70:"7W"],[80:"8W"],[90:"9W"],[100:"10W"],[150:"15W"],[200:"20W"]], defaultValue: 50 
+        input name: "voltageReportChange", type: "enum", title: "Voltage Change (V)", options: [[10:"1V"],[20:"2V"],[30:"3V"],[40:"4V"],[50:"5V"],[60:"6V"],[70:"7V"],[80:"8V"],[90:"9V"],[100:"10V"],[150:"15V"],[200:"20V"]], defaultValue: 50   
+        input name: "currentReportChange", type: "enum", title: "Current Change (A)", options: [[100:"0.1A"],[200:"0.2A"],[300:"0.3A"],[400:"0.4A"],[500:"0.5A"],[600:"0.6A"],[700:"0.7A"],[800:"0.8A"],[900:"0.9A"],[1000:"1A"],[1500:"1.5A"],[2000:"2A"]], defaultValue: 100                                                                                                                                   
+        input name: "energyReportChange", type: "enum", title: "Energy Change (kWh)", options: [[360000:"0.1kWh"],[720000:"0.2kWh"],[1080000:"0.3kWh"],[1440000:"0.4kWh"],[1800000:"0.5kWh"],[2160000:"0.6kWh"],[2520000:"0.7kWh"],[2880000:"0.8kWh"],[3240000:"0.9kWh"],[3600000:"1kWh"]], defaultValue: 1800000      
+        input name: "logEnable", type: "bool", title: "Debug"
+	}
+}
+
+def installed() {
+    device.updateSetting("logEnable", [value: "true", type: "bool"])
+	logDebug("installed called")
+    runIn(1800,logsOff)
+}    
+
+def updated() {
+    logDebug("updated called")
+	log.warn("debug logging is: ${settings.logEnable != false}")
+    log.info("additional reporting is: ${settings.additionalReportingEnable == true}")
+    if (settings.additionalReportingEnable) {
+        log.info("power change is: ${((settings.powerReportChange != null ? settings.powerReportChange : 50).toBigDecimal()) / 10} W") 
+        log.info("voltage change is: ${((settings.voltageReportChange != null ? settings.voltageReportChange : 50).toBigDecimal()) / 10} V") 
+        log.info("current change is: ${((settings.currentReportChange != null ? settings.currentReportChange : 100).toBigDecimal()) / 1000} A") 
+        log.info("energy change is: ${((settings.energyReportChange != null ? settings.energyReportChange : 1800000).toBigDecimal()) / 3600000} kWh") 
+        sendHubCommand(configureAdditionalReporting())
+    } 
+    else if (settings.additionalReportingEnable == false) {
+        sendHubCommand(unconfigureAdditionalReporting())
+    }
+    state.clear()	
+	unschedule()
+	if (logEnable) runIn(1800,logsOff)
+}
+
+void parse(String description) {
+	logDebug("parse called")
+	logDebug("got description: ${description}")	
+    def event
+    if (!(description.startsWith("catchall"))) {
+        event = zigbee.getEvent(description)        
+    }
+    if (event) {
+        logDebug("got event: ${event}")	
+        if (event.name == "switch") {
+            def type = "physical"
+            def descriptionText = "${device.displayName} was turned ${event.value}"
+            if (device.currentValue("switch") && event.value == device.currentValue("switch")) {
+                descriptionText = "${device.displayName} is ${event.value}"
+            }                
+            if (device.currentValue("action") == "digitalon" || device.currentValue("action") == "digitaloff") {
+                logDebug("action is ${device.currentValue("action")}")
+                type = "digital"
+                sendEvent(getEvent([name: "action", value: "unknown", isStateChange: true, displayed: false]))
+            }
+            sendEvent(getEvent([name: "switch", value: event.value, type: type, descriptionText: descriptionText])) 
+        }
+        else if (event.name == "level") {
+            def type = "physical"
+            def descriptionText = "${device.displayName} was set to ${event.value}%"
+            if (device.currentValue("level") && event.value == device.currentValue("level")) {
+                descriptionText = "${device.displayName} is ${event.value}%"
+            }                
+            if (device.currentValue("action") == "digitalsetlevel") {
+                logDebug("action is ${device.currentValue("action")}")
+                type = "digital"
+                sendEvent(getEvent([name: "action", value: "unknown", isStateChange: true, displayed: false]))
+            }
+            sendEvent(getEvent([name: "level", value: event.value, unit: "%", type: type, descriptionText: descriptionText])) 
+        }
+        else {
+            logDebug("skipped")	
+        }
+    }
+    else {
+        def descriptionMap = zigbee.parseDescriptionAsMap(description)
+        def events = getEvents(descriptionMap)	
+        if (events) {	
+            events.each {		    
+                sendEvent(getEvent(it))
+            }
+        }
+        else {	
+            log.warn("Unhandled command: ${descriptionMap}")			        	
+        }
+    }   
+}
+
+def getEvents(descriptionMap) {
+    logDebug("getEvents called")
+    logDebug("got descriptionMap: ${descriptionMap}")
+	def events = []    
+    def command = "zigbee command ignored"    
+    switch (descriptionMap.command) {
+        case "07": 
+            command = "configure reporting response"
+            break
+        case "0B":
+            command = "default response"
+            break
+        case "01":
+            command = "read attributes response"
+            break
+        case "0A":
+            command = "report attributes"
+            break
+    }
+    if (descriptionMap.cluster == "0702" || descriptionMap.clusterId == "0702" || descriptionMap.clusterInt == 1794) {
+		logDebug("simple metering (0702)")
+        if (descriptionMap.attrId == "0000" || descriptionMap.attrInt == 0) {            
+            def energyValue = zigbee.convertHexToInt(descriptionMap.value)
+            logDebug("energy report is ${energyValue}") //3600000 = 1kWh
+            energyValue = energyValue / 3600000 
+            events.add([name: "energy", value: energyValue, unit: "kWh", type: "physical", descriptionText: "${device.displayName} is ${energyValue} kWh"]) 
+		}        
+        else {
+            logDebug("${command}")
+        }
+	}
+    else if (descriptionMap.cluster == "0B04" || descriptionMap.clusterId == "0B04" || descriptionMap.clusterInt == 2820) {
+        logDebug("electrical measurement (0B04)")     
+        if (descriptionMap.attrId == "050B" || descriptionMap.attrInt == 1291) {
+            def powerValue = zigbee.convertHexToInt(descriptionMap.value)
+            logDebug("power report is ${powerValue}") //10 = 1W
+            powerValue = powerValue / 10
+            events.add([name: "power", value: powerValue, unit: "W", type: "physical", descriptionText: "${device.displayName} is ${powerValue} W"])
+        }
+        else if (descriptionMap.attrId == "0505" || descriptionMap.attrInt == 1285) {
+            def voltageValue = zigbee.convertHexToInt(descriptionMap.value)
+            logDebug("voltage report is ${voltageValue}") //10 = 1V
+            voltageValue = voltageValue / 10 
+            events.add([name: "voltage", value: voltageValue, unit: "V", type: "physical", descriptionText: "${device.displayName} is ${voltageValue} V"])
+        }
+        else if (descriptionMap.attrId == "0508" || descriptionMap.attrInt == 1288) {
+            def currentValue = zigbee.convertHexToInt(descriptionMap.value)
+            logDebug("current report is ${currentValue}") //1000 = 1A
+            currentValue = currentValue / 1000 
+            events.add([name: "current", value: currentValue, unit: "A", type: "physical", descriptionText: "${device.displayName} is ${currentValue} A"])
+        }     
+        else {
+            logDebug("${command}")
+        } 
+    }
+    else if (descriptionMap.cluster == "0006" || descriptionMap.clusterId == "0006" || descriptionMap.clusterInt == 6) {
+        logDebug("switch (0006) ${command}")        
+	}
+    else if (descriptionMap.cluster == "0008" || descriptionMap.clusterId == "0008" || descriptionMap.clusterInt == 8) {
+        logDebug("level (0008) ${command}")
+    }
+    else if (descriptionMap.cluster == "8021" || descriptionMap.clusterId == "8021" || descriptionMap.clusterInt == 32801) {  
+        logDebug("zdo bind response (0x8021) ${descriptionMap.data}")
+    }
+    else {
+        logDebug("skipped")
+    }
+    if (descriptionMap.additionalAttrs) {
+        logDebug("got additionalAttrs: ${descriptionMap.additionalAttrs}")
+        descriptionMap.additionalAttrs.each { 
+            it.clusterInt = descriptionMap.clusterInt
+            it.cluster = descriptionMap.cluster
+            it.clusterId = descriptionMap.clusterId          
+            it.command = descriptionMap.command  
+            events.add(getEvents(it))
+        }
+    }
+	return events
+}
+
+def configure() {
+	logDebug("configure called")
+    def cmds = onOffConfig() + levelConfig() 
+	logDebug("sending ${cmds}")
+	return cmds
+}
+
+def configureAdditionalReporting() {
+	logDebug("configureAdditionalReporting called")
+    def cmds = simpleMeteringConfig() + electricMeasurementPowerConfig() + electricMeasurementVoltageConfig() + electricMeasurementCurrentConfig()
+	logDebug("sending ${cmds}")
+	return cmds
+}
+
+def unconfigureAdditionalReporting() {
+	logDebug("unconfigureAdditionalReporting called")
+    def cmds = zigbee.removeBinding(0x0B04, zigbee.zigbeeId, 0x01, zigbee.zigbeeEui, 0x01) + zigbee.removeBinding(0x0702, zigbee.zigbeeId, 0x01, zigbee.zigbeeEui, 0x01) 
+   	logDebug("sending ${cmds}")
+	return cmds
+}
+
+def refresh() {
+	logDebug("refresh called")
+	def cmds = onOffRefresh() + levelRefresh() 
+    if (settings.additionalReportingEnable) {
+        cmds += simpleMeteringRefresh() + electricMeasurementPowerRefresh() + electricMeasurementVoltageRefresh() + electricMeasurementCurrentRefresh()
+    }    
+    logDebug("sending ${cmds}")
+	return cmds
+}
+
+def on() {
+	logDebug("on called")
+	def cmds = zigbee.on()
+	logDebug("sending ${cmds}")
+    sendEvent(getEvent([name: "action", value: "digitalon", isStateChange: true, displayed: false]))
+	return cmds
+}
+
+def off() {
+	logDebug("off called")
+	def cmds = zigbee.off()
+	logDebug("sending ${cmds}")
+    sendEvent(getEvent([name: "action", value: "digitaloff", isStateChange: true, displayed: false]))  
+	return cmds
+}
+
+def setLevel(value) {  
+    logDebug("setLevel called value: ${value}")
+    def cmds = zigbee.setLevel(value)
+	logDebug("sending ${cmds}")
+    sendEvent(getEvent([name: "action", value: "digitalsetlevel", isStateChange: true, displayed: false]))     
+	return cmds       
+}
+
+def onOffRefresh() {
+    logDebug("onOffRefresh called")
+	def cmds = zigbee.onOffRefresh()
+    return cmds
+}
+
+def onOffConfig() {
+    logDebug("onOffConfig called")
+	def cmds = zigbee.onOffConfig()
+    return cmds
+}
+
+def levelRefresh() {
+    logDebug("levelRefresh called")
+	def cmds = zigbee.levelRefresh()
+    return cmds
+}
+
+def levelConfig() {
+    logDebug("levelConfig called")
+	def cmds = zigbee.levelConfig()
+    return cmds
+}
+
+def simpleMeteringRefresh() {
+    logDebug("simpleMeteringRefresh called")
+	def cmds = zigbee.readAttribute(0x0702, 0x0000)    
+    return cmds
+}
+
+def simpleMeteringConfig() {
+    logDebug("simpleMeteringConfig called")        
+    def energychange = (settings.energyReportChange != null ? settings.energyReportChange : 1800000).toInteger()
+    def cmds = zigbee.configureReporting(0x0702, 0x0000, DataType.UINT48, 5, 600, energychange)
+    return cmds
+}
+
+def electricMeasurementPowerConfig() {
+	logDebug("electricMeasurementPowerConfig called")
+    def powerchange = (settings.powerReportChange != null ? settings.powerReportChange : 50).toInteger()
+    def cmds = zigbee.configureReporting(0x0B04, 0x050b, DataType.INT16, 5, 600, powerchange)    
+    return cmds
+}
+
+def electricMeasurementVoltageConfig() {
+	logDebug("electricMeasurementVoltageConfig called") 
+    def voltagechange = (settings.voltageReportChange != null ? settings.voltageReportChange : 50).toInteger()
+    def cmds = zigbee.configureReporting(0x0B04, 0x0505, DataType.UINT16, 5, 600, voltagechange)    
+    return cmds    
+}
+
+def electricMeasurementCurrentConfig() {
+	logDebug("electricMeasurementCurrentConfig called")    
+    def currentchange = (settings.currentReportChange != null ? settings.currentReportChange : 100).toInteger()
+    def cmds = zigbee.configureReporting(0x0B04, 0x0508, DataType.UINT16, 5, 600, currentchange)    
+    return cmds    
+}
+
+def electricMeasurementPowerRefresh() {
+    logDebug("electricMeasurementPowerRefresh called")
+	def cmds = zigbee.readAttribute(0x0B04, 0x050b)
+    return cmds
+}
+
+def electricMeasurementVoltageRefresh() {
+    logDebug("electricMeasurementVoltageRefresh called")
+	def cmds = zigbee.readAttribute(0x0B04, 0x0505)
+    return cmds
+}
+
+def electricMeasurementCurrentRefresh() {
+    logDebug("electricMeasurementCurrentRefresh called")
+	def cmds = zigbee.readAttribute(0x0B04, 0x0508)
+    return cmds
+}
+
+def getEvent(event) {
+    logDebug("getEvent called data: ${event}")
+    return createEvent(event)
+}
+
+def logDebug(msg) {
+	if (settings.logEnable != false) {
+		log.debug("${msg}")
+	}
+}
+
+def logsOff() {
+    log.warn("debug logging disabled")
+    device.updateSetting("logEnable", [value: "false", type: "bool"])
+}
